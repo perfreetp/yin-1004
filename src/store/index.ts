@@ -10,9 +10,11 @@ import type {
   Complaint,
   PatrolRecord,
   AppNotification,
+  LostItem,
 } from '@/types'
 
 const today = new Date().toISOString().split('T')[0]
+const STORAGE_KEY = 'wansui_mountain_store_v1'
 
 const generateHourlyFlow = (): VisitorFlowRecord[] => {
   const hours = []
@@ -30,16 +32,6 @@ const generateHourlyFlow = (): VisitorFlowRecord[] => {
     })
   }
   return hours
-}
-
-const mockDailyStats: DailyStats = {
-  date: today,
-  totalVisitors: 2847,
-  currentInPark: 1523,
-  ticketRevenue: 186540,
-  complaintCount: 3,
-  performanceCount: 8,
-  shopOpenRate: 0.92,
 }
 
 const mockTicketSales: TicketSale[] = [
@@ -68,69 +60,14 @@ const mockTeamReservations: TeamReservation[] = [
 ]
 
 const mockPerformances: Performance[] = [
-  {
-    id: '1', name: '水浒英雄传', venue: '万岁山主舞台', startTime: '09:30', endTime: '10:15', date: today,
-    actors: [
-      { id: 'a1', name: '刘建军', role: '宋江', checkedIn: true },
-      { id: 'a2', name: '赵志远', role: '武松', checkedIn: true },
-      { id: 'a3', name: '王大鹏', role: '鲁智深', checkedIn: true },
-    ],
-    status: 'confirmed',
-  },
-  {
-    id: '2', name: '杨家将', venue: '北广场戏台', startTime: '10:30', endTime: '11:15', date: today,
-    actors: [
-      { id: 'a4', name: '陈国栋', role: '杨六郎', checkedIn: true },
-      { id: 'a5', name: '马飞龙', role: '杨宗保', checkedIn: false },
-    ],
-    status: 'scheduled',
-  },
-  {
-    id: '3', name: '包公断案', venue: '开封府实景', startTime: '11:30', endTime: '12:15', date: today,
-    actors: [
-      { id: 'a6', name: '孙明辉', role: '包拯', checkedIn: true },
-      { id: 'a7', name: '周文博', role: '公孙策', checkedIn: true },
-    ],
-    status: 'confirmed',
-  },
-  {
-    id: '4', name: '岳飞传', venue: '万岁山主舞台', startTime: '14:00', endTime: '14:45', date: today,
-    actors: [
-      { id: 'a8', name: '吴天昊', role: '岳飞', checkedIn: false },
-      { id: 'a9', name: '郑凯文', role: '岳云', checkedIn: false },
-    ],
-    status: 'scheduled',
-  },
-  {
-    id: '5', name: '大宋婚礼秀', venue: '民俗街区', startTime: '15:00', endTime: '15:40', date: today,
-    actors: [
-      { id: 'a10', name: '林婉清', role: '新娘', checkedIn: false },
-      { id: 'a11', name: '张子豪', role: '新郎', checkedIn: false },
-    ],
-    status: 'scheduled',
-  },
-  {
-    id: '6', name: '少林功夫表演', venue: '武术馆', startTime: '16:00', endTime: '16:30', date: today,
-    actors: [
-      { id: 'a12', name: '释永信', role: '主演', checkedIn: false },
-    ],
-    status: 'scheduled',
-  },
-  {
-    id: '7', name: '喷火杂技', venue: '南门广场', startTime: '13:00', endTime: '13:30', date: today,
-    actors: [
-      { id: 'a13', name: '黄飞鸿', role: '主演', checkedIn: true },
-    ],
-    status: 'cancelled',
-    cancelReason: '演员身体不适',
-  },
-  {
-    id: '8', name: '宋代舞蹈', venue: '湖心亭', startTime: '17:00', endTime: '17:30', date: today,
-    actors: [
-      { id: 'a14', name: '李婉儿', role: '领舞', checkedIn: false },
-    ],
-    status: 'scheduled',
-  },
+  { id: '1', name: '水浒英雄传', venue: '万岁山主舞台', startTime: '09:30', endTime: '10:15', date: today, actors: [{ id: 'a1', name: '刘建军', role: '宋江', checkedIn: true }, { id: 'a2', name: '赵志远', role: '武松', checkedIn: true }, { id: 'a3', name: '王大鹏', role: '鲁智深', checkedIn: true }], status: 'confirmed' },
+  { id: '2', name: '杨家将', venue: '北广场戏台', startTime: '10:30', endTime: '11:15', date: today, actors: [{ id: 'a4', name: '陈国栋', role: '杨六郎', checkedIn: true }, { id: 'a5', name: '马飞龙', role: '杨宗保', checkedIn: false }], status: 'scheduled' },
+  { id: '3', name: '包公断案', venue: '开封府实景', startTime: '11:30', endTime: '12:15', date: today, actors: [{ id: 'a6', name: '孙明辉', role: '包拯', checkedIn: true }, { id: 'a7', name: '周文博', role: '公孙策', checkedIn: true }], status: 'confirmed' },
+  { id: '4', name: '岳飞传', venue: '万岁山主舞台', startTime: '14:00', endTime: '14:45', date: today, actors: [{ id: 'a8', name: '吴天昊', role: '岳飞', checkedIn: false }, { id: 'a9', name: '郑凯文', role: '岳云', checkedIn: false }], status: 'scheduled' },
+  { id: '5', name: '大宋婚礼秀', venue: '民俗街区', startTime: '15:00', endTime: '15:40', date: today, actors: [{ id: 'a10', name: '林婉清', role: '新娘', checkedIn: false }, { id: 'a11', name: '张子豪', role: '新郎', checkedIn: false }], status: 'scheduled' },
+  { id: '6', name: '少林功夫表演', venue: '武术馆', startTime: '16:00', endTime: '16:30', date: today, actors: [{ id: 'a12', name: '释永信', role: '主演', checkedIn: false }], status: 'scheduled' },
+  { id: '7', name: '喷火杂技', venue: '南门广场', startTime: '13:00', endTime: '13:30', date: today, actors: [{ id: 'a13', name: '黄飞鸿', role: '主演', checkedIn: true }], status: 'cancelled', cancelReason: '演员身体不适' },
+  { id: '8', name: '宋代舞蹈', venue: '湖心亭', startTime: '17:00', endTime: '17:30', date: today, actors: [{ id: 'a14', name: '李婉儿', role: '领舞', checkedIn: false }], status: 'scheduled' },
 ]
 
 const mockVisitorFlow: VisitorFlowRecord[] = generateHourlyFlow()
@@ -166,31 +103,10 @@ const mockComplaints: Complaint[] = [
 ]
 
 const mockPatrolRecords: PatrolRecord[] = [
-  {
-    id: '1', staffName: '张队长', route: '东门→民俗街区→开封府→北广场', startTime: `${today} 08:00`, endTime: `${today} 09:30`,
-    photos: ['https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=scenic+park+patrol+morning+check&image_size=landscape_16_9'],
-    notes: '东门入口秩序良好，民俗街区地面有少量垃圾已通知保洁',
-    lostItems: [],
-  },
-  {
-    id: '2', staffName: '王副队长', route: '南门→湖心亭→武术馆→主舞台', startTime: `${today} 10:00`, endTime: `${today} 11:30`,
-    photos: ['https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=lake+pavilion+scenic+area+inspection&image_size=landscape_16_9'],
-    notes: '湖心亭护栏有松动，已设置警示标志',
-    lostItems: [
-      { id: 'l1', name: '黑色双肩包', description: 'Nike品牌黑色双肩包，内有钱包和钥匙', location: '湖心亭西侧长椅', foundTime: `${today} 10:35`, status: 'registered', contactInfo: '' },
-    ],
-  },
-  {
-    id: '3', staffName: '李队员', route: '北广场→开封府→民俗街区→东门', startTime: `${today} 14:00`, endTime: `${today} 15:30`,
-    photos: ['https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=traditional+chinese+market+street+afternoon+patrol&image_size=landscape_16_9'],
-    notes: '北广场客流较大，已增派安保人员维持秩序',
-    lostItems: [
-      { id: 'l2', name: '儿童水壶', description: '蓝色儿童保温水壶，杯身有卡通图案', location: '开封府出口处', foundTime: `${today} 14:45`, status: 'registered', contactInfo: '' },
-    ],
-  },
+  { id: '1', staffName: '张队长', route: '东门→民俗街区→开封府→北广场', startTime: `${today} 08:00`, endTime: `${today} 09:30`, photos: [], notes: '东门入口秩序良好，民俗街区地面有少量垃圾已通知保洁', lostItems: [] },
+  { id: '2', staffName: '王副队长', route: '南门→湖心亭→武术馆→主舞台', startTime: `${today} 10:00`, endTime: `${today} 11:30`, photos: [], notes: '湖心亭护栏有松动，已设置警示标志', lostItems: [{ id: 'l1', name: '黑色双肩包', description: 'Nike品牌黑色双肩包，内有钱包和钥匙', location: '湖心亭西侧长椅', foundTime: `${today} 10:35`, status: 'registered', contactInfo: '' }] },
+  { id: '3', staffName: '李队员', route: '北广场→开封府→民俗街区→东门', startTime: `${today} 14:00`, endTime: `${today} 15:30`, photos: [], notes: '北广场客流较大，已增派安保人员维持秩序', lostItems: [{ id: 'l2', name: '儿童水壶', description: '蓝色儿童保温水壶，杯身有卡通图案', location: '开封府出口处', foundTime: `${today} 14:45`, status: 'registered', contactInfo: '' }] },
 ]
-
-const mockLostItems = mockPatrolRecords.flatMap(r => r.lostItems)
 
 const mockNotifications: AppNotification[] = [
   { id: '1', title: '暑期夜场活动通知', content: '7月1日至8月31日，景区增设夜场演出，营业时间延长至21:00。请各部门做好排班调整。', type: 'announcement', targetAreas: ['全园区'], status: 'published', publishTime: `${today} 08:00`, isPinned: true, createdAt: `${today} 07:30` },
@@ -199,6 +115,59 @@ const mockNotifications: AppNotification[] = [
   { id: '4', title: '端午节龙舟赛公告', content: '6月22日端午节当天，湖心亭将举行龙舟赛表演，请提前做好场地布置和客流引导方案。', type: 'announcement', targetAreas: ['湖心亭', '民俗街区'], status: 'draft', isPinned: false, createdAt: `${today} 10:00` },
   { id: '5', title: '每日运营简报模板', content: '今日入园2847人，较昨日增长12%；售票收入18.65万元；演出8场，1场临时取消；投诉3件，1件已处理；商铺营业率92%。', type: 'briefing', targetAreas: ['管理部'], status: 'draft', isPinned: false, createdAt: `${today} 17:00` },
 ]
+
+interface PersistState {
+  teamReservations: TeamReservation[]
+  performances: Performance[]
+  shops: Shop[]
+  complaints: Complaint[]
+  patrolRecords: PatrolRecord[]
+  notifications: AppNotification[]
+}
+
+const PERSIST_KEYS: (keyof PersistState)[] = ['teamReservations', 'performances', 'shops', 'complaints', 'patrolRecords', 'notifications']
+
+const persist = (state: PersistState) => {
+  try {
+    const saveData: Partial<PersistState> = {}
+    for (const key of PERSIST_KEYS) {
+      ;(saveData as any)[key] = (state as any)[key]
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saveData))
+  } catch (e) {
+    console.warn('Store persist failed:', e)
+  }
+}
+
+const restore = (): Partial<PersistState> | null => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as Partial<PersistState>
+  } catch (e) {
+    console.warn('Store restore failed:', e)
+    return null
+  }
+}
+
+const restored = restore()
+
+const computeDailyStats = (state: { performances: Performance[]; shops: Shop[]; complaints: Complaint[] }): DailyStats => {
+  const openCount = state.shops.filter((s) => s.isOpen).length
+  const activePerformances = state.performances.filter((p) => p.status !== 'cancelled').length
+  return {
+    date: today,
+    totalVisitors: 2847,
+    currentInPark: 1523,
+    ticketRevenue: 186540,
+    complaintCount: state.complaints.length,
+    performanceCount: activePerformances,
+    shopOpenRate: state.shops.length > 0 ? openCount / state.shops.length : 0,
+  }
+}
+
+const computeLostItems = (patrolRecords: PatrolRecord[]): LostItem[] =>
+  patrolRecords.flatMap((r) => r.lostItems)
 
 interface AppState {
   dailyStats: DailyStats
@@ -210,7 +179,7 @@ interface AppState {
   shops: Shop[]
   complaints: Complaint[]
   patrolRecords: PatrolRecord[]
-  lostItems: typeof mockLostItems
+  lostItems: LostItem[]
   notifications: AppNotification[]
 
   addTeamReservation: (reservation: TeamReservation) => void
@@ -222,112 +191,217 @@ interface AppState {
   addComplaint: (complaint: Complaint) => void
   updateComplaintStatus: (id: string, status: Complaint['status'], assignee?: string, remark?: string) => void
   addPatrolRecord: (record: PatrolRecord) => void
-  addLostItem: (item: typeof mockLostItems[0]) => void
-  updateLostItemStatus: (id: string, status: 'registered' | 'claimed' | 'unclaimed') => void
+  addLostItem: (item: LostItem, patrolRecordId?: string) => void
+  updateLostItemStatus: (id: string, status: LostItem['status']) => void
   addNotification: (notification: AppNotification) => void
+  updateNotification: (id: string, patch: Partial<AppNotification>) => void
   updateNotificationStatus: (id: string, status: AppNotification['status']) => void
   generateBriefing: () => string
 }
 
+type BaseState = Omit<AppState,
+  'dailyStats' | 'ticketSales' | 'visitorFlow' | 'areaFlows' | 'lostItems'
+  | keyof Omit<AppState, keyof PersistState>
+> & PersistState
+
+const initialPersisted: PersistState = {
+  teamReservations: restored?.teamReservations ?? mockTeamReservations,
+  performances: restored?.performances ?? mockPerformances,
+  shops: restored?.shops ?? mockShops,
+  complaints: restored?.complaints ?? mockComplaints,
+  patrolRecords: restored?.patrolRecords ?? mockPatrolRecords,
+  notifications: restored?.notifications ?? mockNotifications,
+}
+
 export const useStore = create<AppState>((set, get) => ({
-  dailyStats: mockDailyStats,
+  dailyStats: computeDailyStats(initialPersisted),
   ticketSales: mockTicketSales,
-  teamReservations: mockTeamReservations,
-  performances: mockPerformances,
+  teamReservations: initialPersisted.teamReservations,
+  performances: initialPersisted.performances,
   visitorFlow: mockVisitorFlow,
   areaFlows: mockAreaFlows,
-  shops: mockShops,
-  complaints: mockComplaints,
-  patrolRecords: mockPatrolRecords,
-  lostItems: mockLostItems,
-  notifications: mockNotifications,
+  shops: initialPersisted.shops,
+  complaints: initialPersisted.complaints,
+  patrolRecords: initialPersisted.patrolRecords,
+  lostItems: computeLostItems(initialPersisted.patrolRecords),
+  notifications: initialPersisted.notifications,
 
   addTeamReservation: (reservation) =>
-    set((state) => ({ teamReservations: [...state.teamReservations, reservation] })),
+    set((state) => {
+      const next: BaseState = { ...(state as BaseState), teamReservations: [...state.teamReservations, reservation] }
+      persist(next)
+      return {
+        teamReservations: next.teamReservations,
+        dailyStats: computeDailyStats(next),
+      }
+    }),
 
   updateTeamReservation: (id, status) =>
-    set((state) => ({
-      teamReservations: state.teamReservations.map((r) =>
-        r.id === id ? { ...r, status } : r
-      ),
-    })),
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        teamReservations: state.teamReservations.map((r) => (r.id === id ? { ...r, status } : r)),
+      }
+      persist(next)
+      return {
+        teamReservations: next.teamReservations,
+        dailyStats: computeDailyStats(next),
+      }
+    }),
 
   addPerformance: (performance) =>
-    set((state) => ({ performances: [...state.performances, performance] })),
+    set((state) => {
+      const next: BaseState = { ...(state as BaseState), performances: [...state.performances, performance] }
+      persist(next)
+      return {
+        performances: next.performances,
+        dailyStats: computeDailyStats(next),
+      }
+    }),
 
   updatePerformanceStatus: (id, status, cancelReason) =>
-    set((state) => ({
-      performances: state.performances.map((p) =>
-        p.id === id ? { ...p, status, cancelReason } : p
-      ),
-    })),
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        performances: state.performances.map((p) => (p.id === id ? { ...p, status, cancelReason } : p)),
+      }
+      persist(next)
+      return {
+        performances: next.performances,
+        dailyStats: computeDailyStats(next),
+      }
+    }),
 
   toggleActorCheckIn: (performanceId, actorId) =>
-    set((state) => ({
-      performances: state.performances.map((p) =>
-        p.id === performanceId
-          ? {
-              ...p,
-              actors: p.actors.map((a) =>
-                a.id === actorId ? { ...a, checkedIn: !a.checkedIn } : a
-              ),
-            }
-          : p
-      ),
-    })),
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        performances: state.performances.map((p) =>
+          p.id === performanceId
+            ? { ...p, actors: p.actors.map((a) => (a.id === actorId ? { ...a, checkedIn: !a.checkedIn } : a)) }
+            : p
+        ),
+      }
+      persist(next)
+      return { performances: next.performances, dailyStats: computeDailyStats(next) }
+    }),
 
   toggleShopStatus: (id) =>
-    set((state) => ({
-      shops: state.shops.map((s) =>
-        s.id === id ? { ...s, isOpen: !s.isOpen } : s
-      ),
-    })),
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        shops: state.shops.map((s) => (s.id === id ? { ...s, isOpen: !s.isOpen } : s)),
+      }
+      persist(next)
+      return { shops: next.shops, dailyStats: computeDailyStats(next) }
+    }),
 
   addComplaint: (complaint) =>
-    set((state) => ({ complaints: [...state.complaints, complaint] })),
+    set((state) => {
+      const next: BaseState = { ...(state as BaseState), complaints: [...state.complaints, complaint] }
+      persist(next)
+      return { complaints: next.complaints, dailyStats: computeDailyStats(next) }
+    }),
 
   updateComplaintStatus: (id, status, assignee, remark) =>
-    set((state) => ({
-      complaints: state.complaints.map((c) =>
-        c.id === id
-          ? { ...c, status, ...(assignee && { assignee }), ...(remark && { remark }), updatedAt: new Date().toLocaleString() }
-          : c
-      ),
-    })),
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        complaints: state.complaints.map((c) =>
+          c.id === id
+            ? { ...c, status, ...(assignee && { assignee }), ...(remark && { remark }), updatedAt: new Date().toLocaleString() }
+            : c
+        ),
+      }
+      persist(next)
+      return { complaints: next.complaints, dailyStats: computeDailyStats(next) }
+    }),
 
   addPatrolRecord: (record) =>
-    set((state) => ({ patrolRecords: [...state.patrolRecords, record] })),
+    set((state) => {
+      const next: BaseState = { ...(state as BaseState), patrolRecords: [...state.patrolRecords, record] }
+      persist(next)
+      return {
+        patrolRecords: next.patrolRecords,
+        lostItems: computeLostItems(next.patrolRecords),
+        dailyStats: computeDailyStats(next),
+      }
+    }),
 
-  addLostItem: (item) =>
-    set((state) => ({ lostItems: [...state.lostItems, item] })),
+  addLostItem: (item, patrolRecordId) =>
+    set((state) => {
+      const targetId = patrolRecordId || (state.patrolRecords.length > 0 ? state.patrolRecords[0].id : undefined)
+      if (!targetId) return state
+      const next: BaseState = {
+        ...(state as BaseState),
+        patrolRecords: state.patrolRecords.map((p) =>
+          p.id === targetId ? { ...p, lostItems: [...p.lostItems, item] } : p
+        ),
+      }
+      persist(next)
+      return {
+        patrolRecords: next.patrolRecords,
+        lostItems: computeLostItems(next.patrolRecords),
+        dailyStats: computeDailyStats(next),
+      }
+    }),
 
   updateLostItemStatus: (id, status) =>
-    set((state) => ({
-      lostItems: state.lostItems.map((i) =>
-        i.id === id ? { ...i, status } : i
-      ),
-    })),
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        patrolRecords: state.patrolRecords.map((p) => ({
+          ...p,
+          lostItems: p.lostItems.map((i) => (i.id === id ? { ...i, status } : i)),
+        })),
+      }
+      persist(next)
+      return {
+        patrolRecords: next.patrolRecords,
+        lostItems: computeLostItems(next.patrolRecords),
+        dailyStats: computeDailyStats(next),
+      }
+    }),
 
   addNotification: (notification) =>
-    set((state) => ({ notifications: [...state.notifications, notification] })),
+    set((state) => {
+      const next: BaseState = { ...(state as BaseState), notifications: [...state.notifications, notification] }
+      persist(next)
+      return { notifications: next.notifications, dailyStats: computeDailyStats(next) }
+    }),
+
+  updateNotification: (id, patch) =>
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        notifications: state.notifications.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+      }
+      persist(next)
+      return { notifications: next.notifications, dailyStats: computeDailyStats(next) }
+    }),
 
   updateNotificationStatus: (id, status) =>
-    set((state) => ({
-      notifications: state.notifications.map((n) =>
-        n.id === id
-          ? { ...n, status, ...(status === 'published' && { publishTime: new Date().toLocaleString() }) }
-          : n
-      ),
-    })),
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        notifications: state.notifications.map((n) =>
+          n.id === id
+            ? { ...n, status, ...(status === 'published' && { publishTime: new Date().toLocaleString() }) }
+            : n
+        ),
+      }
+      persist(next)
+      return { notifications: next.notifications, dailyStats: computeDailyStats(next) }
+    }),
 
   generateBriefing: () => {
-    const { dailyStats, performances, complaints, shops } = get()
+    const state = get()
+    const { dailyStats, performances, complaints, shops } = state
     const activePerformances = performances.filter((p) => p.status !== 'cancelled')
     const cancelledPerformances = performances.filter((p) => p.status === 'cancelled')
     const resolvedComplaints = complaints.filter((c) => c.status === 'resolved')
     const pendingComplaints = complaints.filter((c) => c.status !== 'resolved')
     const openShops = shops.filter((s) => s.isOpen).length
-
     return `【万岁山景区每日运营简报】
 日期：${dailyStats.date}
 ━━━━━━━━━━━━━━━━━━━━
@@ -335,6 +409,6 @@ export const useStore = create<AppState>((set, get) => ({
 💰 票务收入：¥${dailyStats.ticketRevenue.toLocaleString()}
 🎭 演出情况：共排 ${performances.length} 场，实际演出 ${activePerformances.length} 场，${cancelledPerformances.length > 0 ? `临时取消 ${cancelledPerformances.length} 场` : '无临时取消'}
 📢 投诉工单：共 ${complaints.length} 件，已处理 ${resolvedComplaints.length} 件，待处理 ${pendingComplaints.length} 件
-🏪 商铺运营：${openShops}/${shops.length} 家营业，营业率 ${((openShops / shops.length) * 100).toFixed(0)}%`
+🏪 商铺运营：${openShops}/${shops.length} 家营业，营业率 ${shops.length > 0 ? ((openShops / shops.length) * 100).toFixed(0) : 0}%`
   },
 }))

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ShieldCheck, Clock, MapPin, Camera, Package, Plus, X, Check, Search } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { ShieldCheck, Clock, MapPin, Camera, Package, Plus, X, Check, Search, ImagePlus, Trash2 } from 'lucide-react'
 import { useStore } from '@/store'
 import type { LostItem } from '@/types'
 
@@ -8,6 +8,14 @@ const LOST_STATUS_BADGE: Record<LostItem['status'], { cls: string; label: string
   claimed: { cls: 'badge-success', label: '已认领' },
   unclaimed: { cls: 'badge-danger', label: '无人认领' },
 }
+
+const readAsDataURL = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => resolve(fr.result as string)
+    fr.onerror = reject
+    fr.readAsDataURL(file)
+  })
 
 function calcDuration(start: string, end: string) {
   const ms = new Date(end).getTime() - new Date(start).getTime()
@@ -26,6 +34,8 @@ export default function Patrol() {
   const [showLostModal, setShowLostModal] = useState(false)
   const [searchLost, setSearchLost] = useState('')
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   const [patrolForm, setPatrolForm] = useState({
     staffName: '',
     route: '',
@@ -33,6 +43,7 @@ export default function Patrol() {
     endTime: '',
     notes: '',
   })
+  const [patrolPhotos, setPatrolPhotos] = useState<string[]>([])
 
   const [lostForm, setLostForm] = useState({
     name: '',
@@ -54,34 +65,70 @@ export default function Patrol() {
       )
     : lostItems
 
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    const promises = Array.from(files).map(f => readAsDataURL(f))
+    const results = await Promise.all(promises)
+    setPatrolPhotos(prev => [...prev, ...results])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handlePhotoRemove = (idx: number) => {
+    setPatrolPhotos(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const resetPatrolForm = () => {
+    setPatrolForm({ staffName: '', route: '', startTime: '', endTime: '', notes: '' })
+    setPatrolPhotos([])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const resetLostForm = () => {
+    setLostForm({ name: '', description: '', location: '', foundTime: '' })
+  }
+
   const handleAddPatrol = () => {
     if (!patrolForm.staffName.trim() || !patrolForm.route.trim() || !patrolForm.startTime || !patrolForm.endTime) return
+    const startStr = patrolForm.startTime.replace('T', ' ')
+    const endStr = patrolForm.endTime.replace('T', ' ')
     addPatrolRecord({
       id: String(Date.now()),
       staffName: patrolForm.staffName.trim(),
       route: patrolForm.route.trim(),
-      startTime: patrolForm.startTime,
-      endTime: patrolForm.endTime,
-      photos: [],
+      startTime: startStr,
+      endTime: endStr,
+      photos: [...patrolPhotos],
       notes: patrolForm.notes.trim(),
       lostItems: [],
     })
-    setPatrolForm({ staffName: '', route: '', startTime: '', endTime: '', notes: '' })
+    resetPatrolForm()
     setShowPatrolModal(false)
   }
 
   const handleAddLost = () => {
     if (!lostForm.name.trim() || !lostForm.location.trim() || !lostForm.foundTime) return
+    const foundStr = lostForm.foundTime.replace('T', ' ')
     addLostItem({
       id: String(Date.now()),
       name: lostForm.name.trim(),
       description: lostForm.description.trim(),
       location: lostForm.location.trim(),
-      foundTime: lostForm.foundTime,
+      foundTime: foundStr,
       status: 'registered',
       contactInfo: '',
     })
-    setLostForm({ name: '', description: '', location: '', foundTime: '' })
+    resetLostForm()
+    setShowLostModal(false)
+  }
+
+  const closePatrolModal = () => {
+    resetPatrolForm()
+    setShowPatrolModal(false)
+  }
+
+  const closeLostModal = () => {
+    resetLostForm()
     setShowLostModal(false)
   }
 
@@ -176,13 +223,13 @@ export default function Patrol() {
                   </div>
 
                   {record.photos.length > 0 && (
-                    <div className="flex gap-2 mt-3">
+                    <div className="flex flex-wrap gap-2 mt-3">
                       {record.photos.map((photo, idx) => (
                         <img
                           key={idx}
                           src={photo}
-                          alt={`巡场照片 ${idx + 1}`}
-                          className="w-20 h-14 rounded-lg object-cover border border-surface-500/30"
+                          alt=""
+                          className="w-20 h-14 rounded-lg object-cover border border-surface-500/30 cursor-pointer hover:opacity-90 transition-opacity"
                         />
                       ))}
                     </div>
@@ -271,11 +318,11 @@ export default function Patrol() {
       </div>
 
       {showPatrolModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowPatrolModal(false)}>
-          <div className="bg-surface-800 border border-surface-500/30 rounded-xl w-full max-w-md mx-4 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closePatrolModal}>
+          <div className="bg-surface-800 border border-surface-500/30 rounded-xl w-full max-w-md mx-4 p-6 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-base font-semibold text-slate-100">新增巡场记录</h2>
-              <button className="text-slate-500 hover:text-slate-300 transition-colors" onClick={() => setShowPatrolModal(false)}>
+              <button className="text-slate-500 hover:text-slate-300 transition-colors" onClick={closePatrolModal}>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -298,13 +345,62 @@ export default function Patrol() {
                   <input type="datetime-local" className="input-field" value={patrolForm.endTime} onChange={e => setPatrolForm(f => ({ ...f, endTime: e.target.value }))} />
                 </div>
               </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">现场照片</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handlePhotoSelect}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary w-full flex items-center justify-center gap-1.5"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <ImagePlus className="w-4 h-4" />
+                  上传现场照片
+                </button>
+
+                {patrolPhotos.length > 0 && (
+                  <div className="grid grid-cols-4 gap-2 mt-3">
+                    {patrolPhotos.map((photo, idx) => (
+                      <div key={idx} className="relative group">
+                        <img
+                          src={photo}
+                          alt=""
+                          className="w-full h-16 rounded-lg object-cover border border-surface-500/30"
+                        />
+                        <button
+                          type="button"
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                          onClick={() => handlePhotoRemove(idx)}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {patrolPhotos.length > 0 && (
+                  <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+                    <Camera className="w-3 h-3" />
+                    已上传 {patrolPhotos.length} 张照片
+                  </p>
+                )}
+              </div>
+
               <div>
                 <label className="block text-xs text-slate-400 mb-1.5">备注</label>
                 <textarea className="input-field min-h-[80px] resize-none" placeholder="请输入巡场备注" value={patrolForm.notes} onChange={e => setPatrolForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
-              <button className="btn-secondary text-sm" onClick={() => setShowPatrolModal(false)}>取消</button>
+              <button className="btn-secondary text-sm" onClick={closePatrolModal}>取消</button>
               <button className="btn-primary text-sm" onClick={handleAddPatrol}>确认添加</button>
             </div>
           </div>
@@ -312,11 +408,11 @@ export default function Patrol() {
       )}
 
       {showLostModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowLostModal(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closeLostModal}>
           <div className="bg-surface-800 border border-surface-500/30 rounded-xl w-full max-w-md mx-4 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-base font-semibold text-slate-100">登记失物</h2>
-              <button className="text-slate-500 hover:text-slate-300 transition-colors" onClick={() => setShowLostModal(false)}>
+              <button className="text-slate-500 hover:text-slate-300 transition-colors" onClick={closeLostModal}>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -339,7 +435,7 @@ export default function Patrol() {
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
-              <button className="btn-secondary text-sm" onClick={() => setShowLostModal(false)}>取消</button>
+              <button className="btn-secondary text-sm" onClick={closeLostModal}>取消</button>
               <button className="btn-primary text-sm" onClick={handleAddLost}>确认登记</button>
             </div>
           </div>

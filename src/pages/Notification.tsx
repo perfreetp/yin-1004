@@ -10,6 +10,7 @@ import {
   EyeOff,
   Clock,
   Check,
+  Pencil,
 } from 'lucide-react'
 import { useStore } from '@/store'
 import type { AppNotification } from '@/types'
@@ -44,6 +45,7 @@ const STATUS_BADGE: Record<AppNotification['status'], string> = {
 }
 
 type TabFilter = 'all' | AppNotification['type']
+type ModalMode = 'create' | 'edit'
 
 interface FormState {
   title: string
@@ -62,9 +64,10 @@ const emptyForm: FormState = {
 }
 
 export default function Notification() {
-  const { notifications, addNotification, updateNotificationStatus } = useStore()
+  const { notifications, addNotification, updateNotification, updateNotificationStatus } = useStore()
   const [activeTab, setActiveTab] = useState<TabFilter>('all')
   const [showModal, setShowModal] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
 
   const publishedCount = notifications.filter(n => n.status === 'published').length
@@ -82,6 +85,9 @@ export default function Notification() {
     { key: 'briefing', label: '运营简报' },
   ]
 
+  const mode: ModalMode = editingId !== null ? 'edit' : 'create'
+  const editingNotification = editingId !== null ? notifications.find(n => n.id === editingId) : null
+
   const handleToggleArea = (area: string) => {
     setForm(prev => ({
       ...prev,
@@ -91,21 +97,58 @@ export default function Notification() {
     }))
   }
 
+  const resetFormAndClose = () => {
+    setShowModal(false)
+    setForm(emptyForm)
+    setEditingId(null)
+  }
+
+  const handleOpenCreate = () => {
+    setEditingId(null)
+    setForm(emptyForm)
+    setShowModal(true)
+  }
+
+  const handleOpenEdit = (id: string) => {
+    const target = notifications.find(n => n.id === id)
+    if (!target) return
+    setEditingId(id)
+    setForm({
+      title: target.title,
+      content: target.content,
+      type: target.type,
+      targetAreas: [...target.targetAreas],
+      isPinned: target.isPinned,
+    })
+    setShowModal(true)
+  }
+
   const handleSubmit = () => {
     if (!form.title.trim() || !form.content.trim() || form.targetAreas.length === 0) return
-    const now = new Date().toLocaleString()
-    addNotification({
-      id: Date.now().toString(),
-      title: form.title.trim(),
-      content: form.content.trim(),
-      type: form.type,
-      targetAreas: form.targetAreas,
-      status: 'draft',
-      isPinned: form.isPinned,
-      createdAt: now,
-    })
-    setForm(emptyForm)
-    setShowModal(false)
+
+    if (mode === 'create') {
+      const now = new Date().toLocaleString()
+      addNotification({
+        id: Date.now().toString(),
+        title: form.title.trim(),
+        content: form.content.trim(),
+        type: form.type,
+        targetAreas: form.targetAreas,
+        status: 'draft',
+        isPinned: form.isPinned,
+        createdAt: now,
+      })
+    } else if (mode === 'edit' && editingId !== null) {
+      updateNotification(editingId, {
+        title: form.title.trim(),
+        content: form.content.trim(),
+        type: form.type,
+        targetAreas: form.targetAreas,
+        isPinned: form.isPinned,
+      })
+    }
+
+    resetFormAndClose()
   }
 
   const handlePublish = (id: string) => {
@@ -123,7 +166,7 @@ export default function Notification() {
           <h1 className="page-title">通知发布</h1>
           <p className="text-sm text-slate-500 mt-1">管理园区通知、公告与运营简报</p>
         </div>
-        <button className="btn-primary flex items-center gap-2" onClick={() => setShowModal(true)}>
+        <button className="btn-primary flex items-center gap-2" onClick={handleOpenCreate}>
           <Plus className="w-4 h-4" />
           新建通知
         </button>
@@ -204,13 +247,22 @@ export default function Notification() {
                 )}
                 <div className="flex items-center gap-2">
                   {n.status === 'draft' && (
-                    <button
-                      className="btn-primary text-xs px-3 py-1 flex items-center gap-1"
-                      onClick={() => handlePublish(n.id)}
-                    >
-                      <Send className="w-3 h-3" />
-                      发布
-                    </button>
+                    <>
+                      <button
+                        className="btn-secondary text-xs px-3 py-1 flex items-center gap-1"
+                        onClick={() => handleOpenEdit(n.id)}
+                      >
+                        <Pencil className="w-3 h-3" />
+                        编辑
+                      </button>
+                      <button
+                        className="btn-primary text-xs px-3 py-1 flex items-center gap-1"
+                        onClick={() => handlePublish(n.id)}
+                      >
+                        <Send className="w-3 h-3" />
+                        发布
+                      </button>
+                    </>
                   )}
                   {n.status === 'published' && (
                     <button
@@ -222,13 +274,22 @@ export default function Notification() {
                     </button>
                   )}
                   {n.status === 'revoked' && (
-                    <button
-                      className="btn-secondary text-xs px-3 py-1 flex items-center gap-1"
-                      onClick={() => handlePublish(n.id)}
-                    >
-                      <Eye className="w-3 h-3" />
-                      重新发布
-                    </button>
+                    <>
+                      <button
+                        className="btn-secondary text-xs px-3 py-1 flex items-center gap-1"
+                        onClick={() => handleOpenEdit(n.id)}
+                      >
+                        <Pencil className="w-3 h-3" />
+                        编辑
+                      </button>
+                      <button
+                        className="btn-secondary text-xs px-3 py-1 flex items-center gap-1"
+                        onClick={() => handlePublish(n.id)}
+                      >
+                        <Eye className="w-3 h-3" />
+                        重新发布
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -246,21 +307,31 @@ export default function Notification() {
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => { setShowModal(false); setForm(emptyForm) }}
+          onClick={resetFormAndClose}
         >
           <div
             className="card w-full max-w-lg mx-4 relative max-h-[90vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-base font-semibold text-slate-100">新建通知</h2>
+              <h2 className="text-base font-semibold text-slate-100">
+                {mode === 'create' ? '新建通知' : '编辑通知'}
+              </h2>
               <button
                 className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-600 text-slate-400 hover:text-slate-200 transition-colors"
-                onClick={() => { setShowModal(false); setForm(emptyForm) }}
+                onClick={resetFormAndClose}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {mode === 'edit' && editingNotification && (
+              <div className="mb-4">
+                <span className="badge-info inline-flex items-center gap-1.5">
+                  正在编辑 {TYPE_LABELS[editingNotification.type]} · 当前状态 {STATUS_LABELS[editingNotification.status]}
+                </span>
+              </div>
+            )}
 
             <div className="space-y-4">
               <div>
@@ -358,7 +429,7 @@ export default function Notification() {
             <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-surface-500/30">
               <button
                 className="btn-secondary"
-                onClick={() => { setShowModal(false); setForm(emptyForm) }}
+                onClick={resetFormAndClose}
               >
                 取消
               </button>
@@ -368,7 +439,7 @@ export default function Notification() {
                 disabled={!form.title.trim() || !form.content.trim() || form.targetAreas.length === 0}
               >
                 <Send className="w-4 h-4" />
-                保存草稿
+                {mode === 'create' ? '保存草稿' : '保存修改'}
               </button>
             </div>
           </div>
