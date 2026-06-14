@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   AreaChart,
   Area,
@@ -18,10 +18,16 @@ import {
   TrendingDown,
   FileText,
   X,
+  ChevronRight,
+  CheckCircle,
+  Clock,
+  XCircle,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from '@/store'
+import type { Performance } from '@/types'
 
 function AnimatedNumber({ value, duration = 1200 }: { value: number; duration?: number }) {
   const [display, setDisplay] = useState(0)
@@ -62,6 +68,7 @@ const metricCards = [
     trend: +12.5,
     color: 'text-brand-300',
     bg: 'bg-brand-400/15',
+    route: '/ticket',
   },
   {
     key: 'complaintCount' as const,
@@ -72,6 +79,7 @@ const metricCards = [
     trend: -8.3,
     color: 'text-danger-400',
     bg: 'bg-danger-400/15',
+    route: '/complaint',
   },
   {
     key: 'performanceCount' as const,
@@ -82,6 +90,7 @@ const metricCards = [
     trend: +5.0,
     color: 'text-gold-400',
     bg: 'bg-gold-400/15',
+    route: '/performance',
   },
   {
     key: 'shopOpenRate' as const,
@@ -93,6 +102,7 @@ const metricCards = [
     trend: +2.1,
     color: 'text-brand-300',
     bg: 'bg-brand-400/15',
+    route: '/shop',
   },
 ]
 
@@ -113,15 +123,39 @@ function ChartTooltip({ active, payload }: CustomTooltipProps) {
   )
 }
 
+const statusConfig: Record<Performance['status'], { label: string; icon: typeof CheckCircle; badge: string; dotColor: string }> = {
+  confirmed: { label: '已确认', icon: CheckCircle, badge: 'badge-success', dotColor: 'bg-brand-400' },
+  scheduled: { label: '待确认', icon: Clock, badge: 'badge-warning', dotColor: 'bg-gold-400' },
+  cancelled: { label: '已取消', icon: XCircle, badge: 'badge-danger', dotColor: 'bg-danger-400' },
+}
+
 export default function Dashboard() {
-  const { dailyStats, visitorFlow, generateBriefing } = useStore()
+  const { dailyStats, visitorFlow, performances, generateBriefing } = useStore()
   const [briefing, setBriefing] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   const today = format(new Date(), 'yyyy年M月d日 EEEE', { locale: zhCN })
 
   const handleGenerateBriefing = () => {
     setBriefing(generateBriefing())
   }
+
+  const todayPerformances = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0]
+    return performances.filter((p) => p.date === todayStr)
+  }, [performances])
+
+  const groupedPerformances = useMemo(() => {
+    const groups: Record<Performance['status'], Performance[]> = {
+      confirmed: [],
+      scheduled: [],
+      cancelled: [],
+    }
+    for (const p of todayPerformances) {
+      groups[p.status].push(p)
+    }
+    return groups
+  }, [todayPerformances])
 
   return (
     <div className="p-6 space-y-6">
@@ -177,7 +211,11 @@ export default function Dashboard() {
           const isUp = card.trend > 0
           const value = dailyStats[card.key]
           return (
-            <div key={card.key} className="card-hover">
+            <div
+              key={card.key}
+              className="card-hover cursor-pointer hover:-translate-y-0.5 transition-transform duration-200 relative group"
+              onClick={() => navigate(card.route)}
+            >
               <div className="flex items-center justify-between mb-3">
                 <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center`}>
                   <Icon className={`w-5 h-5 ${card.color}`} />
@@ -191,9 +229,59 @@ export default function Dashboard() {
               <p className="stat-value text-slate-100">
                 {card.prefix}<AnimatedNumber value={typeof value === 'number' && card.key === 'shopOpenRate' ? value * 100 : value} />{card.suffix ?? ''}
               </p>
+              <div className="mt-2 flex items-center gap-1 text-xs text-brand-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <span>查看详情</span>
+                <ChevronRight className="w-3 h-3" />
+              </div>
             </div>
           )
         })}
+      </div>
+
+      <div className="card">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="section-title mb-0">今日演出概览</h2>
+          <span className="text-xs text-slate-500">{todayPerformances.length} 场演出</span>
+        </div>
+        <div className="space-y-4">
+          {(['confirmed', 'scheduled', 'cancelled'] as const).map((status) => {
+            const config = statusConfig[status]
+            const StatusIcon = config.icon
+            const items = groupedPerformances[status]
+            if (items.length === 0) return null
+            return (
+              <div key={status}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`w-2 h-2 rounded-full ${config.dotColor}`} />
+                  <span className={`badge ${config.badge} text-xs`}>
+                    <StatusIcon className="w-3 h-3" />
+                    {config.label}
+                  </span>
+                  <span className="text-xs text-slate-500">{items.length} 场</span>
+                </div>
+                <div className="ml-4 space-y-1.5">
+                  {items.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center gap-2 text-sm cursor-pointer hover:text-brand-300 transition-colors group/perf"
+                      onClick={() => navigate('/performance')}
+                    >
+                      <span className="text-slate-300 group-hover/perf:text-brand-300 transition-colors">
+                        {p.name}
+                      </span>
+                      <span className="text-xs text-slate-600">{p.startTime}–{p.endTime}</span>
+                      <span className="text-xs text-slate-600">{p.venue}</span>
+                      {status === 'cancelled' && p.cancelReason && (
+                        <span className="text-xs text-danger-400">({p.cancelReason})</span>
+                      )}
+                      <ChevronRight className="w-3 h-3 text-slate-600 group-hover/perf:text-brand-400 transition-colors ml-auto" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       <div className="card">

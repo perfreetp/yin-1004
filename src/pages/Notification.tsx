@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Megaphone,
   FileText,
@@ -11,6 +11,10 @@ import {
   Clock,
   Check,
   Pencil,
+  CalendarClock,
+  ChevronDown,
+  ChevronUp,
+  Timer,
 } from 'lucide-react'
 import { useStore } from '@/store'
 import type { AppNotification } from '@/types'
@@ -36,12 +40,14 @@ const STATUS_LABELS: Record<AppNotification['status'], string> = {
   draft: '草稿',
   published: '已发布',
   revoked: '已撤回',
+  scheduled: '待发布',
 }
 
 const STATUS_BADGE: Record<AppNotification['status'], string> = {
   draft: 'badge-warning',
   published: 'badge-success',
   revoked: 'badge-danger',
+  scheduled: 'badge-info',
 }
 
 type TabFilter = 'all' | AppNotification['type']
@@ -53,6 +59,8 @@ interface FormState {
   type: AppNotification['type']
   targetAreas: string[]
   isPinned: boolean
+  enableSchedule: boolean
+  scheduledPublishTime: string
 }
 
 const emptyForm: FormState = {
@@ -61,17 +69,28 @@ const emptyForm: FormState = {
   type: 'broadcast',
   targetAreas: [],
   isPinned: false,
+  enableSchedule: false,
+  scheduledPublishTime: '',
 }
 
 export default function Notification() {
-  const { notifications, addNotification, updateNotification, updateNotificationStatus } = useStore()
+  const { notifications, addNotification, updateNotification, updateNotificationStatus, checkScheduledPublish } = useStore()
   const [activeTab, setActiveTab] = useState<TabFilter>('all')
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
+  const [expandedHistory, setExpandedHistory] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      checkScheduledPublish()
+    }, 30000)
+    return () => clearInterval(timer)
+  }, [checkScheduledPublish])
 
   const publishedCount = notifications.filter(n => n.status === 'published').length
   const draftCount = notifications.filter(n => n.status === 'draft').length
+  const scheduledCount = notifications.filter(n => n.status === 'scheduled').length
   const pinnedCount = notifications.filter(n => n.isPinned).length
 
   const filtered = activeTab === 'all'
@@ -119,6 +138,10 @@ export default function Notification() {
       type: target.type,
       targetAreas: [...target.targetAreas],
       isPinned: target.isPinned,
+      enableSchedule: !!target.scheduledPublishTime && target.status === 'scheduled',
+      scheduledPublishTime: target.scheduledPublishTime
+        ? new Date(target.scheduledPublishTime).toISOString().slice(0, 16)
+        : '',
     })
     setShowModal(true)
   }
@@ -134,18 +157,33 @@ export default function Notification() {
         content: form.content.trim(),
         type: form.type,
         targetAreas: form.targetAreas,
-        status: 'draft',
+        status: form.enableSchedule && form.scheduledPublishTime ? 'scheduled' : 'draft',
         isPinned: form.isPinned,
         createdAt: now,
+        ...(form.enableSchedule && form.scheduledPublishTime
+          ? { scheduledPublishTime: new Date(form.scheduledPublishTime).toISOString() }
+          : {}),
+        publishHistory: [],
       })
     } else if (mode === 'edit' && editingId !== null) {
-      updateNotification(editingId, {
+      const patch: Partial<AppNotification> = {
         title: form.title.trim(),
         content: form.content.trim(),
         type: form.type,
         targetAreas: form.targetAreas,
         isPinned: form.isPinned,
-      })
+      }
+      if (form.enableSchedule && form.scheduledPublishTime) {
+        patch.status = 'scheduled'
+        patch.scheduledPublishTime = new Date(form.scheduledPublishTime).toISOString()
+      } else {
+        const current = notifications.find(n => n.id === editingId)
+        if (current?.status === 'scheduled') {
+          patch.status = 'draft'
+          patch.scheduledPublishTime = undefined
+        }
+      }
+      updateNotification(editingId, patch)
     }
 
     resetFormAndClose()
@@ -157,6 +195,26 @@ export default function Notification() {
 
   const handleRevoke = (id: string) => {
     updateNotificationStatus(id, 'revoked')
+  }
+
+  const handleCancelSchedule = (id: string) => {
+    updateNotification(id, { status: 'draft', scheduledPublishTime: undefined })
+  }
+
+  const toggleHistory = (id: string) => {
+    setExpandedHistory(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  const formatScheduledTime = (isoStr: string) => {
+    try {
+      const d = new Date(isoStr)
+      return d.toLocaleString('zh-CN', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+      })
+    } catch {
+      return isoStr
+    }
   }
 
   return (
@@ -172,7 +230,7 @@ export default function Notification() {
         </button>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="card-hover flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-brand-400/15 flex items-center justify-center">
             <Eye className="w-6 h-6 text-brand-300" />
@@ -189,6 +247,15 @@ export default function Notification() {
           <div>
             <p className="text-xs text-slate-500">草稿</p>
             <p className="stat-value text-gold-400">{draftCount}</p>
+          </div>
+        </div>
+        <div className="card-hover flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-sky-400/15 flex items-center justify-center">
+            <Timer className="w-6 h-6 text-sky-400" />
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">待发布</p>
+            <p className="stat-value text-sky-400">{scheduledCount}</p>
           </div>
         </div>
         <div className="card-hover flex items-center gap-4">
@@ -227,7 +294,10 @@ export default function Notification() {
                   {n.isPinned && <Pin className="w-3.5 h-3.5 text-brand-300 shrink-0" />}
                   <h3 className="text-sm font-semibold text-slate-100 truncate">{n.title}</h3>
                   <span className={TYPE_BADGE[n.type]}>{TYPE_LABELS[n.type]}</span>
-                  <span className={STATUS_BADGE[n.status]}>{STATUS_LABELS[n.status]}</span>
+                  <span className={STATUS_BADGE[n.status]}>
+                    {n.status === 'scheduled' && <Clock className="w-3 h-3 inline mr-1" />}
+                    {STATUS_LABELS[n.status]}
+                  </span>
                 </div>
                 <p className="text-xs text-slate-400 line-clamp-2 mb-2">{n.content}</p>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -237,6 +307,40 @@ export default function Notification() {
                     </span>
                   ))}
                 </div>
+                {n.status === 'scheduled' && n.scheduledPublishTime && (
+                  <div className="flex items-center gap-1.5 mt-2 text-xs text-sky-400">
+                    <CalendarClock className="w-3.5 h-3.5" />
+                    定时发布：{formatScheduledTime(n.scheduledPublishTime)}
+                  </div>
+                )}
+                {n.publishHistory.length > 0 && (
+                  <div className="mt-2">
+                    <button
+                      className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
+                      onClick={() => toggleHistory(n.id)}
+                    >
+                      发布记录 ({n.publishHistory.length})
+                      {expandedHistory[n.id] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+                    {expandedHistory[n.id] && (
+                      <div className="mt-1.5 ml-1 border-l border-surface-500/30 pl-3 space-y-1.5">
+                        {n.publishHistory.map((entry, idx) => (
+                          <div key={idx} className="flex items-center gap-1.5 text-xs text-slate-500">
+                            {entry.action === 'published' ? (
+                              <Send className="w-3 h-3 text-emerald-400/70" />
+                            ) : (
+                              <EyeOff className="w-3 h-3 text-red-400/70" />
+                            )}
+                            <span className={entry.action === 'published' ? 'text-emerald-400/70' : 'text-red-400/70'}>
+                              {entry.action === 'published' ? '已发布' : '已撤回'}
+                            </span>
+                            <span className="text-slate-600">{entry.time}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex flex-col items-end gap-2 shrink-0">
                 {n.status === 'published' && n.publishTime && (
@@ -246,7 +350,34 @@ export default function Notification() {
                   </div>
                 )}
                 <div className="flex items-center gap-2">
-                  {n.status === 'draft' && (
+                  {(n.status === 'draft' || n.status === 'revoked') && (
+                    <>
+                      <button
+                        className="btn-secondary text-xs px-3 py-1 flex items-center gap-1"
+                        onClick={() => handleOpenEdit(n.id)}
+                      >
+                        <Pencil className="w-3 h-3" />
+                        编辑
+                      </button>
+                      <button
+                        className="btn-primary text-xs px-3 py-1 flex items-center gap-1"
+                        onClick={() => handlePublish(n.id)}
+                      >
+                        {n.status === 'draft' ? <Send className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        {n.status === 'draft' ? '发布' : '重新发布'}
+                      </button>
+                    </>
+                  )}
+                  {n.status === 'published' && (
+                    <button
+                      className="btn-danger text-xs px-3 py-1 flex items-center gap-1"
+                      onClick={() => handleRevoke(n.id)}
+                    >
+                      <EyeOff className="w-3 h-3" />
+                      撤回
+                    </button>
+                  )}
+                  {n.status === 'scheduled' && (
                     <>
                       <button
                         className="btn-secondary text-xs px-3 py-1 flex items-center gap-1"
@@ -260,34 +391,14 @@ export default function Notification() {
                         onClick={() => handlePublish(n.id)}
                       >
                         <Send className="w-3 h-3" />
-                        发布
-                      </button>
-                    </>
-                  )}
-                  {n.status === 'published' && (
-                    <button
-                      className="btn-danger text-xs px-3 py-1 flex items-center gap-1"
-                      onClick={() => handleRevoke(n.id)}
-                    >
-                      <EyeOff className="w-3 h-3" />
-                      撤回
-                    </button>
-                  )}
-                  {n.status === 'revoked' && (
-                    <>
-                      <button
-                        className="btn-secondary text-xs px-3 py-1 flex items-center gap-1"
-                        onClick={() => handleOpenEdit(n.id)}
-                      >
-                        <Pencil className="w-3 h-3" />
-                        编辑
+                        立即发布
                       </button>
                       <button
                         className="btn-secondary text-xs px-3 py-1 flex items-center gap-1"
-                        onClick={() => handlePublish(n.id)}
+                        onClick={() => handleCancelSchedule(n.id)}
                       >
-                        <Eye className="w-3 h-3" />
-                        重新发布
+                        <Clock className="w-3 h-3" />
+                        取消定时
                       </button>
                     </>
                   )}
@@ -348,11 +459,11 @@ export default function Notification() {
                 <label className="block text-xs text-slate-400 mb-1.5">内容</label>
                 <div className="border border-surface-500/50 rounded-lg overflow-hidden focus-within:border-brand-400/50 focus-within:ring-1 focus-within:ring-brand-400/20 transition-all duration-200">
                   <div className="flex items-center gap-1 px-3 py-1.5 bg-surface-800 border-b border-surface-500/30">
-                    <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-600 text-slate-400 text-xs font-bold">B</button>
-                    <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-600 text-slate-400 text-xs italic">I</button>
-                    <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-600 text-slate-400 text-xs underline">U</button>
+                    <button type="button" className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-600 text-slate-400 text-xs font-bold">B</button>
+                    <button type="button" className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-600 text-slate-400 text-xs italic">I</button>
+                    <button type="button" className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-600 text-slate-400 text-xs underline">U</button>
                     <div className="w-px h-4 bg-surface-500/30 mx-1" />
-                    <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-600 text-slate-400 text-xs">列表</button>
+                    <button type="button" className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-600 text-slate-400 text-xs">列表</button>
                   </div>
                   <textarea
                     className="w-full bg-surface-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none min-h-[120px] resize-y"
@@ -424,6 +535,42 @@ export default function Notification() {
                 <span className="text-sm text-slate-300">是否置顶</span>
                 <Pin className="w-3.5 h-3.5 text-brand-300" />
               </label>
+
+              <div className="border-t border-surface-500/30 pt-4">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all duration-200 ${
+                    form.enableSchedule
+                      ? 'bg-sky-400 border-sky-400'
+                      : 'border-surface-400'
+                  }`}>
+                    {form.enableSchedule && <Check className="w-3.5 h-3.5 text-white" />}
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={form.enableSchedule}
+                    onChange={e => setForm(prev => ({
+                      ...prev,
+                      enableSchedule: e.target.checked,
+                      scheduledPublishTime: e.target.checked ? prev.scheduledPublishTime : '',
+                    }))}
+                  />
+                  <CalendarClock className="w-4 h-4 text-sky-400" />
+                  <span className="text-sm text-slate-300">设置定时发布</span>
+                </label>
+
+                {form.enableSchedule && (
+                  <div className="mt-3 ml-8">
+                    <label className="block text-xs text-slate-400 mb-1.5">发布时间</label>
+                    <input
+                      type="datetime-local"
+                      className="input-field"
+                      value={form.scheduledPublishTime}
+                      onChange={e => setForm(prev => ({ ...prev, scheduledPublishTime: e.target.value }))}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-surface-500/30">
@@ -439,7 +586,11 @@ export default function Notification() {
                 disabled={!form.title.trim() || !form.content.trim() || form.targetAreas.length === 0}
               >
                 <Send className="w-4 h-4" />
-                {mode === 'create' ? '保存草稿' : '保存修改'}
+                {mode === 'create'
+                  ? form.enableSchedule && form.scheduledPublishTime
+                    ? '设置定时发布'
+                    : '保存草稿'
+                  : '保存修改'}
               </button>
             </div>
           </div>

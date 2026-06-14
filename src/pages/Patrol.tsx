@@ -1,5 +1,18 @@
-import { useState, useRef } from 'react'
-import { ShieldCheck, Clock, MapPin, Camera, Package, Plus, X, Check, Search, ImagePlus, Trash2 } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import {
+  ShieldCheck,
+  Clock,
+  MapPin,
+  Camera,
+  Package,
+  Plus,
+  X,
+  Check,
+  Search,
+  ImagePlus,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import { useStore } from '@/store'
 import type { LostItem } from '@/types'
 
@@ -51,6 +64,12 @@ export default function Patrol() {
     location: '',
     foundTime: '',
   })
+  const [linkedPatrolId, setLinkedPatrolId] = useState('')
+
+  const [lightbox, setLightbox] = useState<{
+    photos: string[]
+    index: number
+  } | null>(null)
 
   const todayCount = patrolRecords.length
   const staffCount = new Set(patrolRecords.map(r => r.staffName)).size
@@ -86,6 +105,7 @@ export default function Patrol() {
 
   const resetLostForm = () => {
     setLostForm({ name: '', description: '', location: '', foundTime: '' })
+    setLinkedPatrolId(patrolRecords.length > 0 ? patrolRecords[0].id : '')
   }
 
   const handleAddPatrol = () => {
@@ -109,17 +129,26 @@ export default function Patrol() {
   const handleAddLost = () => {
     if (!lostForm.name.trim() || !lostForm.location.trim() || !lostForm.foundTime) return
     const foundStr = lostForm.foundTime.replace('T', ' ')
-    addLostItem({
-      id: String(Date.now()),
-      name: lostForm.name.trim(),
-      description: lostForm.description.trim(),
-      location: lostForm.location.trim(),
-      foundTime: foundStr,
-      status: 'registered',
-      contactInfo: '',
-    })
+    addLostItem(
+      {
+        id: String(Date.now()),
+        name: lostForm.name.trim(),
+        description: lostForm.description.trim(),
+        location: lostForm.location.trim(),
+        foundTime: foundStr,
+        status: 'registered',
+        contactInfo: '',
+      },
+      linkedPatrolId || undefined
+    )
     resetLostForm()
     setShowLostModal(false)
+  }
+
+  const openLostModalWithPatrol = (patrolId: string) => {
+    setLostForm({ name: '', description: '', location: '', foundTime: '' })
+    setLinkedPatrolId(patrolId)
+    setShowLostModal(true)
   }
 
   const closePatrolModal = () => {
@@ -132,6 +161,27 @@ export default function Patrol() {
     setShowLostModal(false)
   }
 
+  const lightboxPrev = useCallback(() => {
+    setLightbox(prev => (prev ? { ...prev, index: (prev.index - 1 + prev.photos.length) % prev.photos.length } : null))
+  }, [])
+
+  const lightboxNext = useCallback(() => {
+    setLightbox(prev => (prev ? { ...prev, index: (prev.index + 1) % prev.photos.length } : null))
+  }, [])
+
+  const lightboxClose = useCallback(() => setLightbox(null), [])
+
+  useEffect(() => {
+    if (!lightbox) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') lightboxClose()
+      if (e.key === 'ArrowLeft') lightboxPrev()
+      if (e.key === 'ArrowRight') lightboxNext()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [lightbox, lightboxClose, lightboxPrev, lightboxNext])
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -140,7 +190,7 @@ export default function Patrol() {
           巡场记录
         </h1>
         <div className="flex items-center gap-3">
-          <button className="btn-secondary flex items-center gap-1.5 text-sm" onClick={() => setShowLostModal(true)}>
+          <button className="btn-secondary flex items-center gap-1.5 text-sm" onClick={() => { resetLostForm(); setShowLostModal(true) }}>
             <Package className="w-4 h-4" />
             登记失物
           </button>
@@ -230,6 +280,7 @@ export default function Patrol() {
                           src={photo}
                           alt=""
                           className="w-20 h-14 rounded-lg object-cover border border-surface-500/30 cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => setLightbox({ photos: record.photos, index: idx })}
                         />
                       ))}
                     </div>
@@ -254,6 +305,16 @@ export default function Patrol() {
                       </div>
                     </div>
                   )}
+
+                  <div className="mt-3 pt-3 border-t border-surface-500/20 flex justify-end">
+                    <button
+                      className="btn-secondary text-xs flex items-center gap-1"
+                      onClick={() => openLostModalWithPatrol(record.id)}
+                    >
+                      <Package className="w-3.5 h-3.5" />
+                      补登记失物
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -409,7 +470,7 @@ export default function Patrol() {
 
       {showLostModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closeLostModal}>
-          <div className="bg-surface-800 border border-surface-500/30 rounded-xl w-full max-w-md mx-4 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="bg-surface-800 border border-surface-500/30 rounded-xl w-full max-w-md mx-4 p-6 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-base font-semibold text-slate-100">登记失物</h2>
               <button className="text-slate-500 hover:text-slate-300 transition-colors" onClick={closeLostModal}>
@@ -417,6 +478,20 @@ export default function Patrol() {
               </button>
             </div>
             <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">关联巡场记录</label>
+                <select
+                  className="input-field"
+                  value={linkedPatrolId}
+                  onChange={e => setLinkedPatrolId(e.target.value)}
+                >
+                  {patrolRecords.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.staffName} - {r.route} - {r.startTime}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="block text-xs text-slate-400 mb-1.5">物品名称</label>
                 <input className="input-field" placeholder="请输入物品名称" value={lostForm.name} onChange={e => setLostForm(f => ({ ...f, name: e.target.value }))} />
@@ -438,6 +513,49 @@ export default function Patrol() {
               <button className="btn-secondary text-sm" onClick={closeLostModal}>取消</button>
               <button className="btn-primary text-sm" onClick={handleAddLost}>确认登记</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={lightboxClose}
+        >
+          <button
+            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors z-10"
+            onClick={lightboxClose}
+          >
+            <X className="w-7 h-7" />
+          </button>
+
+          {lightbox.photos.length > 1 && (
+            <button
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors z-10"
+              onClick={e => { e.stopPropagation(); lightboxPrev() }}
+            >
+              <ChevronLeft className="w-8 h-8" />
+            </button>
+          )}
+
+          {lightbox.photos.length > 1 && (
+            <button
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors z-10"
+              onClick={e => { e.stopPropagation(); lightboxNext() }}
+            >
+              <ChevronRight className="w-8 h-8" />
+            </button>
+          )}
+
+          <img
+            src={lightbox.photos[lightbox.index]}
+            alt=""
+            className="max-w-4xl max-h-[80vh] object-contain rounded-lg shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/70 text-sm">
+            {lightbox.index + 1} / {lightbox.photos.length}
           </div>
         </div>
       )}

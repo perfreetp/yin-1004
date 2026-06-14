@@ -109,11 +109,11 @@ const mockPatrolRecords: PatrolRecord[] = [
 ]
 
 const mockNotifications: AppNotification[] = [
-  { id: '1', title: '暑期夜场活动通知', content: '7月1日至8月31日，景区增设夜场演出，营业时间延长至21:00。请各部门做好排班调整。', type: 'announcement', targetAreas: ['全园区'], status: 'published', publishTime: `${today} 08:00`, isPinned: true, createdAt: `${today} 07:30` },
-  { id: '2', title: '高温预警广播', content: '今日气温预计达到38°C，请广播站每小时播报一次防暑提示，商铺确保饮品供应充足。', type: 'broadcast', targetAreas: ['全园区'], status: 'published', publishTime: `${today} 09:00`, isPinned: false, createdAt: `${today} 08:45` },
-  { id: '3', title: '武术馆客流预警', content: '武术馆当前客流已达容量上限，请引导游客前往其他区域参观。', type: 'broadcast', targetAreas: ['武术馆', '南门广场'], status: 'published', publishTime: `${today} 13:30`, isPinned: false, createdAt: `${today} 13:25` },
-  { id: '4', title: '端午节龙舟赛公告', content: '6月22日端午节当天，湖心亭将举行龙舟赛表演，请提前做好场地布置和客流引导方案。', type: 'announcement', targetAreas: ['湖心亭', '民俗街区'], status: 'draft', isPinned: false, createdAt: `${today} 10:00` },
-  { id: '5', title: '每日运营简报模板', content: '今日入园2847人，较昨日增长12%；售票收入18.65万元；演出8场，1场临时取消；投诉3件，1件已处理；商铺营业率92%。', type: 'briefing', targetAreas: ['管理部'], status: 'draft', isPinned: false, createdAt: `${today} 17:00` },
+  { id: '1', title: '暑期夜场活动通知', content: '7月1日至8月31日，景区增设夜场演出，营业时间延长至21:00。请各部门做好排班调整。', type: 'announcement', targetAreas: ['全园区'], status: 'published', publishTime: `${today} 08:00`, isPinned: true, createdAt: `${today} 07:30`, publishHistory: [{ action: 'published', time: `${today} 08:00` }] },
+  { id: '2', title: '高温预警广播', content: '今日气温预计达到38°C，请广播站每小时播报一次防暑提示，商铺确保饮品供应充足。', type: 'broadcast', targetAreas: ['全园区'], status: 'published', publishTime: `${today} 09:00`, isPinned: false, createdAt: `${today} 08:45`, publishHistory: [{ action: 'published', time: `${today} 09:00` }] },
+  { id: '3', title: '武术馆客流预警', content: '武术馆当前客流已达容量上限，请引导游客前往其他区域参观。', type: 'broadcast', targetAreas: ['武术馆', '南门广场'], status: 'published', publishTime: `${today} 13:30`, isPinned: false, createdAt: `${today} 13:25`, publishHistory: [{ action: 'published', time: `${today} 13:30` }] },
+  { id: '4', title: '端午节龙舟赛公告', content: '6月22日端午节当天，湖心亭将举行龙舟赛表演，请提前做好场地布置和客流引导方案。', type: 'announcement', targetAreas: ['湖心亭', '民俗街区'], status: 'draft', isPinned: false, createdAt: `${today} 10:00`, publishHistory: [] },
+  { id: '5', title: '每日运营简报模板', content: '今日入园2847人，较昨日增长12%；售票收入18.65万元；演出8场，1场临时取消；投诉3件，1件已处理；商铺营业率92%。', type: 'briefing', targetAreas: ['管理部'], status: 'draft', isPinned: false, createdAt: `${today} 17:00`, publishHistory: [] },
 ]
 
 interface PersistState {
@@ -196,6 +196,7 @@ interface AppState {
   addNotification: (notification: AppNotification) => void
   updateNotification: (id: string, patch: Partial<AppNotification>) => void
   updateNotificationStatus: (id: string, status: AppNotification['status']) => void
+  checkScheduledPublish: () => void
   generateBriefing: () => string
 }
 
@@ -382,17 +383,57 @@ export const useStore = create<AppState>((set, get) => ({
 
   updateNotificationStatus: (id, status) =>
     set((state) => {
+      const now = new Date().toLocaleString()
       const next: BaseState = {
         ...(state as BaseState),
-        notifications: state.notifications.map((n) =>
-          n.id === id
-            ? { ...n, status, ...(status === 'published' && { publishTime: new Date().toLocaleString() }) }
-            : n
-        ),
+        notifications: state.notifications.map((n) => {
+          if (n.id !== id) return n
+          const historyEntry = status === 'published'
+            ? { action: 'published' as const, time: now }
+            : status === 'revoked'
+            ? { action: 'revoked' as const, time: now }
+            : null
+          return {
+            ...n,
+            status,
+            ...(status === 'published' && { publishTime: now }),
+            ...(status === 'draft' && { publishTime: undefined, scheduledPublishTime: undefined }),
+            ...(historyEntry && { publishHistory: [...n.publishHistory, historyEntry] }),
+          }
+        }),
       }
       persist(next)
       return { notifications: next.notifications, dailyStats: computeDailyStats(next) }
     }),
+
+  checkScheduledPublish: () => {
+    const state = get()
+    const now = new Date()
+    const changed = state.notifications.filter((n) => {
+      if (n.status !== 'scheduled' || !n.scheduledPublishTime) return false
+      return new Date(n.scheduledPublishTime) <= now
+    })
+    if (changed.length === 0) return
+    const nowStr = now.toLocaleString()
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        notifications: state.notifications.map((n) => {
+          const shouldPublish = changed.some((c) => c.id === n.id)
+          if (!shouldPublish) return n
+          return {
+            ...n,
+            status: 'published' as const,
+            publishTime: nowStr,
+            scheduledPublishTime: undefined,
+            publishHistory: [...n.publishHistory, { action: 'published' as const, time: nowStr }],
+          }
+        }),
+      }
+      persist(next)
+      return { notifications: next.notifications, dailyStats: computeDailyStats(next) }
+    })
+  },
 
   generateBriefing: () => {
     const state = get()

@@ -106,14 +106,21 @@ export interface LostItem {
   contactInfo?: string
 }
 
+export interface PublishLogEntry {
+  action: 'published' | 'revoked'
+  time: string
+}
+
 export interface AppNotification {
   id: string
   title: string
   content: string
   type: 'broadcast' | 'announcement' | 'briefing'
   targetAreas: string[]
-  status: 'draft' | 'published' | 'revoked'
+  status: 'draft' | 'published' | 'revoked' | 'scheduled'
   publishTime?: string
+  scheduledPublishTime?: string
   isPinned: boolean
   createdAt: string
+  publishHistory: PublishLogEntry[]
 }
