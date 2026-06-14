@@ -193,9 +193,10 @@ interface AppState {
   addPatrolRecord: (record: PatrolRecord) => void
   addLostItem: (item: LostItem, patrolRecordId?: string) => void
   updateLostItemStatus: (id: string, status: LostItem['status']) => void
+  updateLostItem: (id: string, patch: Partial<LostItem>) => void
   addNotification: (notification: AppNotification) => void
   updateNotification: (id: string, patch: Partial<AppNotification>) => void
-  updateNotificationStatus: (id: string, status: AppNotification['status']) => void
+  updateNotificationStatus: (id: string, status: AppNotification['status'], reason?: string) => void
   checkScheduledPublish: () => void
   generateBriefing: () => string
 }
@@ -364,6 +365,23 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }),
 
+  updateLostItem: (id, patch) =>
+    set((state) => {
+      const next: BaseState = {
+        ...(state as BaseState),
+        patrolRecords: state.patrolRecords.map((p) => ({
+          ...p,
+          lostItems: p.lostItems.map((i) => (i.id === id ? { ...i, ...patch } : i)),
+        })),
+      }
+      persist(next)
+      return {
+        patrolRecords: next.patrolRecords,
+        lostItems: computeLostItems(next.patrolRecords),
+        dailyStats: computeDailyStats(next),
+      }
+    }),
+
   addNotification: (notification) =>
     set((state) => {
       const next: BaseState = { ...(state as BaseState), notifications: [...state.notifications, notification] }
@@ -381,7 +399,7 @@ export const useStore = create<AppState>((set, get) => ({
       return { notifications: next.notifications, dailyStats: computeDailyStats(next) }
     }),
 
-  updateNotificationStatus: (id, status) =>
+  updateNotificationStatus: (id, status, reason) =>
     set((state) => {
       const now = new Date().toLocaleString()
       const next: BaseState = {
@@ -391,7 +409,7 @@ export const useStore = create<AppState>((set, get) => ({
           const historyEntry = status === 'published'
             ? { action: 'published' as const, time: now }
             : status === 'revoked'
-            ? { action: 'revoked' as const, time: now }
+            ? { action: 'revoked' as const, time: now, reason }
             : null
           return {
             ...n,

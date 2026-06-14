@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Mountain,
 } from 'lucide-react'
+import { useStore } from '@/store'
 
 const navItems = [
   { path: '/', label: '运营看板', icon: LayoutDashboard },
@@ -27,6 +28,15 @@ const navItems = [
 
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false)
+  const checkScheduledPublish = useStore((s) => s.checkScheduledPublish)
+
+  useEffect(() => {
+    checkScheduledPublish()
+    const timer = setInterval(() => {
+      checkScheduledPublish()
+    }, 30000)
+    return () => clearInterval(timer)
+  }, [checkScheduledPublish])
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface-900">

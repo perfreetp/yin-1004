@@ -14,10 +14,14 @@ import {
   CalendarClock,
   ChevronDown,
   ChevronUp,
-  Timer,
+  AlertTriangle,
+  Wand2,
+  Package,
+  ShieldCheck,
+  User,
 } from 'lucide-react'
 import { useStore } from '@/store'
-import type { AppNotification } from '@/types'
+import type { AppNotification, LostItem, PatrolRecord } from '@/types'
 
 const TARGET_AREAS = [
   '全园区', '万岁山主舞台', '开封府实景', '民俗街区', '湖心亭',
@@ -52,6 +56,7 @@ const STATUS_BADGE: Record<AppNotification['status'], string> = {
 
 type TabFilter = 'all' | AppNotification['type']
 type ModalMode = 'create' | 'edit'
+type GenerateTab = 'lostItem' | 'patrol'
 
 interface FormState {
   title: string
@@ -74,18 +79,20 @@ const emptyForm: FormState = {
 }
 
 export default function Notification() {
-  const { notifications, addNotification, updateNotification, updateNotificationStatus, checkScheduledPublish } = useStore()
+  const { notifications, addNotification, updateNotification, updateNotificationStatus, checkScheduledPublish, lostItems, patrolRecords } = useStore()
   const [activeTab, setActiveTab] = useState<TabFilter>('all')
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [expandedHistory, setExpandedHistory] = useState<Record<string, boolean>>({})
+  const [showRevokeModal, setShowRevokeModal] = useState(false)
+  const [revokingId, setRevokingId] = useState<string | null>(null)
+  const [revokeReason, setRevokeReason] = useState('')
+  const [showGenerateModal, setShowGenerateModal] = useState(false)
+  const [generateTab, setGenerateTab] = useState<GenerateTab>('lostItem')
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      checkScheduledPublish()
-    }, 30000)
-    return () => clearInterval(timer)
+    checkScheduledPublish()
   }, [checkScheduledPublish])
 
   const publishedCount = notifications.filter(n => n.status === 'published').length
@@ -96,6 +103,8 @@ export default function Notification() {
   const filtered = activeTab === 'all'
     ? notifications
     : notifications.filter(n => n.type === activeTab)
+
+  const availableLostItems = lostItems.filter(item => item.status !== 'claimed')
 
   const tabs: { key: TabFilter; label: string }[] = [
     { key: 'all', label: '全部' },
@@ -193,8 +202,24 @@ export default function Notification() {
     updateNotificationStatus(id, 'published')
   }
 
-  const handleRevoke = (id: string) => {
-    updateNotificationStatus(id, 'revoked')
+  const handleOpenRevoke = (id: string) => {
+    setRevokingId(id)
+    setRevokeReason('')
+    setShowRevokeModal(true)
+  }
+
+  const handleConfirmRevoke = () => {
+    if (!revokingId || !revokeReason.trim()) return
+    updateNotificationStatus(revokingId, 'revoked', revokeReason.trim())
+    setShowRevokeModal(false)
+    setRevokingId(null)
+    setRevokeReason('')
+  }
+
+  const handleCloseRevoke = () => {
+    setShowRevokeModal(false)
+    setRevokingId(null)
+    setRevokeReason('')
   }
 
   const handleCancelSchedule = (id: string) => {
@@ -203,6 +228,52 @@ export default function Notification() {
 
   const toggleHistory = (id: string) => {
     setExpandedHistory(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  const deriveTargetAreasFromRoute = (route: string): string[] => {
+    const areas: string[] = []
+    const routeLower = route.toLowerCase()
+    if (routeLower.includes('东门')) areas.push('东门入口')
+    if (routeLower.includes('南门')) areas.push('南门广场')
+    if (routeLower.includes('北广场')) areas.push('北广场')
+    if (routeLower.includes('民俗')) areas.push('民俗街区')
+    if (routeLower.includes('开封府')) areas.push('开封府实景')
+    if (routeLower.includes('湖心亭')) areas.push('湖心亭')
+    if (routeLower.includes('武术馆')) areas.push('武术馆')
+    if (routeLower.includes('主舞台') || routeLower.includes('万岁山')) areas.push('万岁山主舞台')
+    if (areas.length === 0) areas.push('全园区')
+    return areas
+  }
+
+  const handleGenerateFromLostItem = (item: LostItem) => {
+    setForm({
+      title: `失物招领：${item.name}`,
+      content: `在 ${item.location} 拾得${item.name}，${item.description}。请失主携带有效证件前往客服中心认领。`,
+      type: 'broadcast',
+      targetAreas: ['全园区'],
+      isPinned: false,
+      enableSchedule: false,
+      scheduledPublishTime: '',
+    })
+    setEditingId(null)
+    setShowGenerateModal(false)
+    setShowModal(true)
+  }
+
+  const handleGenerateFromPatrol = (record: PatrolRecord) => {
+    const targetAreas = deriveTargetAreasFromRoute(record.route)
+    setForm({
+      title: `巡场提醒：${record.route}`,
+      content: `${record.staffName} 在巡场（路线：${record.route}）中发现以下情况：${record.notes || '请注意关注相关区域。'}`,
+      type: 'broadcast',
+      targetAreas,
+      isPinned: false,
+      enableSchedule: false,
+      scheduledPublishTime: '',
+    })
+    setEditingId(null)
+    setShowGenerateModal(false)
+    setShowModal(true)
   }
 
   const formatScheduledTime = (isoStr: string) => {
@@ -224,10 +295,16 @@ export default function Notification() {
           <h1 className="page-title">通知发布</h1>
           <p className="text-sm text-slate-500 mt-1">管理园区通知、公告与运营简报</p>
         </div>
-        <button className="btn-primary flex items-center gap-2" onClick={handleOpenCreate}>
-          <Plus className="w-4 h-4" />
-          新建通知
-        </button>
+        <div className="flex items-center gap-3">
+          <button className="btn-secondary flex items-center gap-2" onClick={() => setShowGenerateModal(true)}>
+            <Wand2 className="w-4 h-4" />
+            从现有记录生成
+          </button>
+          <button className="btn-primary flex items-center gap-2" onClick={handleOpenCreate}>
+            <Plus className="w-4 h-4" />
+            新建通知
+          </button>
+        </div>
       </header>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -251,7 +328,7 @@ export default function Notification() {
         </div>
         <div className="card-hover flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-sky-400/15 flex items-center justify-center">
-            <Timer className="w-6 h-6 text-sky-400" />
+            <Clock className="w-6 h-6 text-sky-400" />
           </div>
           <div>
             <p className="text-xs text-slate-500">待发布</p>
@@ -325,16 +402,23 @@ export default function Notification() {
                     {expandedHistory[n.id] && (
                       <div className="mt-1.5 ml-1 border-l border-surface-500/30 pl-3 space-y-1.5">
                         {n.publishHistory.map((entry, idx) => (
-                          <div key={idx} className="flex items-center gap-1.5 text-xs text-slate-500">
-                            {entry.action === 'published' ? (
-                              <Send className="w-3 h-3 text-emerald-400/70" />
-                            ) : (
-                              <EyeOff className="w-3 h-3 text-red-400/70" />
+                          <div key={idx} className="space-y-0.5">
+                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                              {entry.action === 'published' ? (
+                                <Send className="w-3 h-3 text-emerald-400/70" />
+                              ) : (
+                                <EyeOff className="w-3 h-3 text-red-400/70" />
+                              )}
+                              <span className={entry.action === 'published' ? 'text-emerald-400/70' : 'text-red-400/70'}>
+                                {entry.action === 'published' ? '已发布' : '已撤回'}
+                              </span>
+                              <span className="text-slate-600">{entry.time}</span>
+                            </div>
+                            {entry.action === 'revoked' && entry.reason && (
+                              <div className="text-xs text-red-400/60 ml-4.5">
+                                原因：{entry.reason}
+                              </div>
                             )}
-                            <span className={entry.action === 'published' ? 'text-emerald-400/70' : 'text-red-400/70'}>
-                              {entry.action === 'published' ? '已发布' : '已撤回'}
-                            </span>
-                            <span className="text-slate-600">{entry.time}</span>
                           </div>
                         ))}
                       </div>
@@ -371,7 +455,7 @@ export default function Notification() {
                   {n.status === 'published' && (
                     <button
                       className="btn-danger text-xs px-3 py-1 flex items-center gap-1"
-                      onClick={() => handleRevoke(n.id)}
+                      onClick={() => handleOpenRevoke(n.id)}
                     >
                       <EyeOff className="w-3 h-3" />
                       撤回
@@ -592,6 +676,198 @@ export default function Notification() {
                     : '保存草稿'
                   : '保存修改'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRevokeModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={handleCloseRevoke}
+        >
+          <div
+            className="card w-full max-w-md mx-4 relative"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+                确认撤回通知？
+              </h2>
+              <button
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-600 text-slate-400 hover:text-slate-200 transition-colors"
+                onClick={handleCloseRevoke}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-400 mb-4">
+              撤回后该通知将立即下线，用户将无法查看。此操作会记录在发布历史中。
+            </p>
+
+            <div className="mb-5">
+              <label className="block text-xs text-slate-400 mb-1.5">
+                撤回原因 <span className="text-red-400">*</span>
+              </label>
+              <textarea
+                className="input-field min-h-[80px] resize-none"
+                placeholder="请输入撤回原因..."
+                value={revokeReason}
+                onChange={e => setRevokeReason(e.target.value)}
+              />
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                className="btn-secondary"
+                onClick={handleCloseRevoke}
+              >
+                取消
+              </button>
+              <button
+                className="btn-danger flex items-center gap-2"
+                onClick={handleConfirmRevoke}
+                disabled={!revokeReason.trim()}
+              >
+                <EyeOff className="w-4 h-4" />
+                确认撤回
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showGenerateModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowGenerateModal(false)}
+        >
+          <div
+            className="card w-full max-w-xl mx-4 relative max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
+                <Wand2 className="w-5 h-5 text-brand-300" />
+                选择来源
+              </h2>
+              <button
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-600 text-slate-400 hover:text-slate-200 transition-colors"
+                onClick={() => setShowGenerateModal(false)}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1 bg-surface-800 rounded-lg p-1 mb-4 shrink-0">
+              <button
+                className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2 ${
+                  generateTab === 'lostItem'
+                    ? 'bg-surface-700 text-brand-300'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                onClick={() => setGenerateTab('lostItem')}
+              >
+                <Package className="w-4 h-4" />
+                失物招领
+              </button>
+              <button
+                className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2 ${
+                  generateTab === 'patrol'
+                    ? 'bg-surface-700 text-brand-300'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                onClick={() => setGenerateTab('patrol')}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                巡场记录
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {generateTab === 'lostItem' && (
+                availableLostItems.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+                    <Package className="w-10 h-10 mb-2 opacity-40" />
+                    <p className="text-sm">暂无未认领的失物</p>
+                  </div>
+                ) : (
+                  availableLostItems.map(item => (
+                    <div key={item.id} className="bg-surface-800 rounded-lg p-3 border border-surface-500/30">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-medium text-slate-200 flex items-center gap-2">
+                            <Package className="w-4 h-4 text-gold-400 shrink-0" />
+                            {item.name}
+                          </h4>
+                          <p className="text-xs text-slate-400 mt-1 line-clamp-2">{item.description}</p>
+                          <div className="flex items-center gap-3 mt-2 text-xs text-slate-500">
+                            <span className="flex items-center gap-1">
+                              <Pin className="w-3 h-3" />
+                              {item.location}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {item.foundTime}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1 shrink-0"
+                          onClick={() => handleGenerateFromLostItem(item)}
+                        >
+                          <Wand2 className="w-3 h-3" />
+                          生成通知
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
+
+              {generateTab === 'patrol' && (
+                patrolRecords.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+                    <ShieldCheck className="w-10 h-10 mb-2 opacity-40" />
+                    <p className="text-sm">暂无巡场记录</p>
+                  </div>
+                ) : (
+                  patrolRecords.map(record => (
+                    <div key={record.id} className="bg-surface-800 rounded-lg p-3 border border-surface-500/30">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-medium text-slate-200 flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                            {record.route}
+                          </h4>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                            <span className="flex items-center gap-1">
+                              <User className="w-3 h-3" />
+                              {record.staffName}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {record.startTime}
+                            </span>
+                          </div>
+                          {record.notes && (
+                            <p className="text-xs text-slate-400 mt-2 line-clamp-2">{record.notes}</p>
+                          )}
+                        </div>
+                        <button
+                          className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1 shrink-0"
+                          onClick={() => handleGenerateFromPatrol(record)}
+                        >
+                          <Wand2 className="w-3 h-3" />
+                          生成通知
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
             </div>
           </div>
         </div>

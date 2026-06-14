@@ -104,11 +104,16 @@ export interface LostItem {
   foundTime: string
   status: 'registered' | 'claimed' | 'unclaimed'
   contactInfo?: string
+  storageLocation?: string
+  handoverTo?: string
+  handoverTime?: string
+  remark?: string
 }
 
 export interface PublishLogEntry {
   action: 'published' | 'revoked'
   time: string
+  reason?: string
 }
 
 export interface AppNotification {

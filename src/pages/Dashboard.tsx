@@ -22,6 +22,8 @@ import {
   CheckCircle,
   Clock,
   XCircle,
+  AlertTriangle,
+  Sparkles,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
@@ -123,11 +125,13 @@ function ChartTooltip({ active, payload }: CustomTooltipProps) {
   )
 }
 
-const statusConfig: Record<Performance['status'], { label: string; icon: typeof CheckCircle; badge: string; dotColor: string }> = {
-  confirmed: { label: '已确认', icon: CheckCircle, badge: 'badge-success', dotColor: 'bg-brand-400' },
-  scheduled: { label: '待确认', icon: Clock, badge: 'badge-warning', dotColor: 'bg-gold-400' },
-  cancelled: { label: '已取消', icon: XCircle, badge: 'badge-danger', dotColor: 'bg-danger-400' },
+const statusConfig: Record<Performance['status'], { label: string; icon: typeof CheckCircle; badge: string; dotColor: string; textColor: string }> = {
+  confirmed: { label: '已确认', icon: CheckCircle, badge: 'badge-success', dotColor: 'bg-brand-400', textColor: 'text-brand-300' },
+  scheduled: { label: '待确认', icon: Clock, badge: 'badge-warning', dotColor: 'bg-gold-400', textColor: 'text-gold-400' },
+  cancelled: { label: '已停演', icon: XCircle, badge: 'badge-danger', dotColor: 'bg-danger-400', textColor: 'text-danger-400' },
 }
+
+const statusOrder: Performance['status'][] = ['scheduled', 'confirmed', 'cancelled']
 
 export default function Dashboard() {
   const { dailyStats, visitorFlow, performances, generateBriefing } = useStore()
@@ -157,6 +161,14 @@ export default function Dashboard() {
     return groups
   }, [todayPerformances])
 
+  const handlePerformanceClick = () => {
+    navigate('/performance')
+  }
+
+  const handleStatusGroupClick = (status: Performance['status']) => {
+    navigate(`/performance?status=${status}`)
+  }
+
   return (
     <div className="p-6 space-y-6">
       <header className="flex items-center justify-between">
@@ -165,7 +177,7 @@ export default function Dashboard() {
           <p className="text-sm text-slate-500 mt-1">{today}</p>
         </div>
         <button className="btn-primary flex items-center gap-2" onClick={handleGenerateBriefing}>
-          <FileText className="w-4 h-4" />
+          <Sparkles className="w-4 h-4" />
           生成每日简报
         </button>
       </header>
@@ -243,40 +255,69 @@ export default function Dashboard() {
           <h2 className="section-title mb-0">今日演出概览</h2>
           <span className="text-xs text-slate-500">{todayPerformances.length} 场演出</span>
         </div>
-        <div className="space-y-4">
-          {(['confirmed', 'scheduled', 'cancelled'] as const).map((status) => {
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {statusOrder.map((status) => {
             const config = statusConfig[status]
             const StatusIcon = config.icon
             const items = groupedPerformances[status]
-            if (items.length === 0) return null
             return (
-              <div key={status}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className={`w-2 h-2 rounded-full ${config.dotColor}`} />
-                  <span className={`badge ${config.badge} text-xs`}>
-                    <StatusIcon className="w-3 h-3" />
-                    {config.label}
-                  </span>
-                  <span className="text-xs text-slate-500">{items.length} 场</span>
+              <div key={status} className="bg-surface-800/50 rounded-lg border border-surface-500/20 overflow-hidden flex flex-col">
+                <div
+                  className="flex items-center justify-between px-4 py-3 border-b border-surface-500/20 cursor-pointer hover:bg-surface-600/30 transition-colors group/header"
+                  onClick={() => handleStatusGroupClick(status)}
+                >
+                  <div className="flex items-center gap-2">
+                    <StatusIcon className={`w-4 h-4 ${config.textColor}`} />
+                    <span className={`text-sm font-medium ${config.textColor}`}>
+                      {config.label}
+                    </span>
+                    <span className="text-xs text-slate-500">· {items.length}场</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-slate-500 group-hover/header:text-brand-400 transition-colors">
+                    <span>查看全部</span>
+                    <ChevronRight className="w-3 h-3" />
+                  </div>
                 </div>
-                <div className="ml-4 space-y-1.5">
-                  {items.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center gap-2 text-sm cursor-pointer hover:text-brand-300 transition-colors group/perf"
-                      onClick={() => navigate('/performance')}
-                    >
-                      <span className="text-slate-300 group-hover/perf:text-brand-300 transition-colors">
-                        {p.name}
-                      </span>
-                      <span className="text-xs text-slate-600">{p.startTime}–{p.endTime}</span>
-                      <span className="text-xs text-slate-600">{p.venue}</span>
-                      {status === 'cancelled' && p.cancelReason && (
-                        <span className="text-xs text-danger-400">({p.cancelReason})</span>
+                <div className="flex-1 p-3 space-y-2 min-h-[120px] max-h-[280px] overflow-y-auto">
+                  {items.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-slate-600">
+                      {status === 'cancelled' ? (
+                        <CheckCircle className="w-8 h-8 mb-2 text-brand-400/30" />
+                      ) : (
+                        <AlertTriangle className="w-8 h-8 mb-2 text-slate-600/50" />
                       )}
-                      <ChevronRight className="w-3 h-3 text-slate-600 group-hover/perf:text-brand-400 transition-colors ml-auto" />
+                      <p className="text-xs">暂无{config.label}演出</p>
                     </div>
-                  ))}
+                  ) : (
+                    items.map((p) => (
+                      <div
+                        key={p.id}
+                        className="p-2.5 rounded-lg bg-surface-700/50 hover:bg-surface-600/50 cursor-pointer transition-colors group/perf"
+                        onClick={handlePerformanceClick}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium text-slate-200 group-hover/perf:text-brand-300 transition-colors line-clamp-1">
+                            {p.name}
+                          </p>
+                          <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover/perf:text-brand-400 transition-colors flex-shrink-0 mt-0.5" />
+                        </div>
+                        <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500">
+                          <Clock className="w-3 h-3" />
+                          <span>{p.startTime}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                          <Drama className="w-3 h-3" />
+                          <span className="truncate">{p.venue}</span>
+                        </div>
+                        {status === 'cancelled' && p.cancelReason && (
+                          <div className="flex items-center gap-1.5 mt-2 text-xs text-danger-400/80 bg-danger-400/10 rounded px-2 py-1">
+                            <XCircle className="w-3 h-3 flex-shrink-0" />
+                            <span className="truncate">{p.cancelReason}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )

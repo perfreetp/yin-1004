@@ -12,6 +12,10 @@ import {
   ImagePlus,
   ChevronLeft,
   ChevronRight,
+  Pencil,
+  Archive,
+  Handshake,
+  FileText,
 } from 'lucide-react'
 import { useStore } from '@/store'
 import type { LostItem } from '@/types'
@@ -40,12 +44,21 @@ function calcDuration(start: string, end: string) {
   return m > 0 ? `${h}小时${m}分钟` : `${h}小时`
 }
 
+function formatDateTimeForInput(dt: string): string {
+  if (!dt) return ''
+  const d = new Date(dt.replace(' ', 'T'))
+  if (isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export default function Patrol() {
-  const { patrolRecords, lostItems, addPatrolRecord, addLostItem, updateLostItemStatus } = useStore()
+  const { patrolRecords, lostItems, addPatrolRecord, addLostItem, updateLostItemStatus, updateLostItem } = useStore()
 
   const [showPatrolModal, setShowPatrolModal] = useState(false)
   const [showLostModal, setShowLostModal] = useState(false)
   const [searchLost, setSearchLost] = useState('')
+  const [editingLostItem, setEditingLostItem] = useState<LostItem | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -63,6 +76,10 @@ export default function Patrol() {
     description: '',
     location: '',
     foundTime: '',
+    storageLocation: '',
+    handoverTo: '',
+    handoverTime: '',
+    remark: '',
   })
   const [linkedPatrolId, setLinkedPatrolId] = useState('')
 
@@ -104,8 +121,18 @@ export default function Patrol() {
   }
 
   const resetLostForm = () => {
-    setLostForm({ name: '', description: '', location: '', foundTime: '' })
+    setLostForm({
+      name: '',
+      description: '',
+      location: '',
+      foundTime: '',
+      storageLocation: '',
+      handoverTo: '',
+      handoverTime: '',
+      remark: '',
+    })
     setLinkedPatrolId(patrolRecords.length > 0 ? patrolRecords[0].id : '')
+    setEditingLostItem(null)
   }
 
   const handleAddPatrol = () => {
@@ -126,28 +153,62 @@ export default function Patrol() {
     setShowPatrolModal(false)
   }
 
-  const handleAddLost = () => {
+  const handleSubmitLost = () => {
     if (!lostForm.name.trim() || !lostForm.location.trim() || !lostForm.foundTime) return
     const foundStr = lostForm.foundTime.replace('T', ' ')
-    addLostItem(
-      {
-        id: String(Date.now()),
+    const handoverStr = lostForm.handoverTime ? lostForm.handoverTime.replace('T', ' ') : ''
+
+    if (editingLostItem) {
+      updateLostItem(editingLostItem.id, {
         name: lostForm.name.trim(),
         description: lostForm.description.trim(),
         location: lostForm.location.trim(),
         foundTime: foundStr,
-        status: 'registered',
-        contactInfo: '',
-      },
-      linkedPatrolId || undefined
-    )
+        storageLocation: lostForm.storageLocation.trim() || undefined,
+        handoverTo: lostForm.handoverTo.trim() || undefined,
+        handoverTime: handoverStr || undefined,
+        remark: lostForm.remark.trim() || undefined,
+      })
+    } else {
+      addLostItem(
+        {
+          id: String(Date.now()),
+          name: lostForm.name.trim(),
+          description: lostForm.description.trim(),
+          location: lostForm.location.trim(),
+          foundTime: foundStr,
+          status: 'registered',
+          contactInfo: '',
+          storageLocation: lostForm.storageLocation.trim() || undefined,
+          handoverTo: lostForm.handoverTo.trim() || undefined,
+          handoverTime: handoverStr || undefined,
+          remark: lostForm.remark.trim() || undefined,
+        },
+        linkedPatrolId || undefined
+      )
+    }
     resetLostForm()
     setShowLostModal(false)
   }
 
   const openLostModalWithPatrol = (patrolId: string) => {
-    setLostForm({ name: '', description: '', location: '', foundTime: '' })
+    resetLostForm()
     setLinkedPatrolId(patrolId)
+    setShowLostModal(true)
+  }
+
+  const openEditLostModal = (item: LostItem) => {
+    setEditingLostItem(item)
+    setLostForm({
+      name: item.name,
+      description: item.description,
+      location: item.location,
+      foundTime: formatDateTimeForInput(item.foundTime),
+      storageLocation: item.storageLocation || '',
+      handoverTo: item.handoverTo || '',
+      handoverTime: formatDateTimeForInput(item.handoverTime || ''),
+      remark: item.remark || '',
+    })
     setShowLostModal(true)
   }
 
@@ -298,9 +359,21 @@ export default function Patrol() {
                       <p className="text-xs text-slate-500 mb-2">拾得物品</p>
                       <div className="flex flex-wrap gap-2">
                         {record.lostItems.map(item => (
-                          <span key={item.id} className={LOST_STATUS_BADGE[item.status].cls}>
-                            {item.name}
-                          </span>
+                          <div
+                            key={item.id}
+                            className="cursor-pointer"
+                            onClick={() => openEditLostModal(item)}
+                          >
+                            <span className={LOST_STATUS_BADGE[item.status].cls + ' flex items-center gap-1'}>
+                              {item.status === 'claimed' && <Check className="w-3 h-3" />}
+                              {item.name}
+                            </span>
+                            {item.storageLocation && (
+                              <p className="text-[10px] text-slate-500 mt-1">
+                                📦 暂存点：{item.storageLocation}
+                              </p>
+                            )}
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -347,7 +420,7 @@ export default function Patrol() {
                       </span>
                     </div>
                     <p className="text-xs text-slate-400 leading-relaxed mb-1.5">{item.description}</p>
-                    <div className="flex items-center gap-3 text-xs text-slate-500">
+                    <div className="flex items-center gap-3 text-xs text-slate-500 mb-2">
                       <span className="flex items-center gap-1">
                         <MapPin className="w-3 h-3" />
                         {item.location}
@@ -357,15 +430,44 @@ export default function Patrol() {
                         {item.foundTime.split(' ')[1] || item.foundTime}
                       </span>
                     </div>
+                    <div className="space-y-1">
+                      {item.storageLocation && (
+                        <p className="text-xs text-slate-400 flex items-center gap-1">
+                          <Archive className="w-3 h-3 text-slate-500" />
+                          暂存：{item.storageLocation}
+                        </p>
+                      )}
+                      {item.handoverTo && item.handoverTime && (
+                        <p className="text-xs text-slate-400 flex items-center gap-1">
+                          <Handshake className="w-3 h-3 text-slate-500" />
+                          交接：{item.handoverTo} @ {item.handoverTime}
+                        </p>
+                      )}
+                      {item.remark && (
+                        <p className="text-xs text-slate-400 flex items-start gap-1">
+                          <FileText className="w-3 h-3 text-slate-500 mt-0.5 flex-shrink-0" />
+                          <span className="line-clamp-2">备注：{item.remark}</span>
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  {item.status === 'registered' && (
+                  <div className="flex flex-col gap-1.5 flex-shrink-0">
+                    {item.status === 'registered' && (
+                      <button
+                        className="btn-primary text-xs px-2.5 py-1"
+                        onClick={() => updateLostItemStatus(item.id, 'claimed')}
+                      >
+                        认领
+                      </button>
+                    )}
                     <button
-                      className="btn-primary text-xs px-2.5 py-1 flex-shrink-0"
-                      onClick={() => updateLostItemStatus(item.id, 'claimed')}
+                      className="btn-secondary text-xs px-2.5 py-1 flex items-center gap-1"
+                      onClick={() => openEditLostModal(item)}
                     >
-                      认领
+                      <Pencil className="w-3 h-3" />
+                      编辑
                     </button>
-                  )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -472,26 +574,30 @@ export default function Patrol() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closeLostModal}>
           <div className="bg-surface-800 border border-surface-500/30 rounded-xl w-full max-w-md mx-4 p-6 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-base font-semibold text-slate-100">登记失物</h2>
+              <h2 className="text-base font-semibold text-slate-100">
+                {editingLostItem ? '编辑失物' : '登记失物'}
+              </h2>
               <button className="text-slate-500 hover:text-slate-300 transition-colors" onClick={closeLostModal}>
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1.5">关联巡场记录</label>
-                <select
-                  className="input-field"
-                  value={linkedPatrolId}
-                  onChange={e => setLinkedPatrolId(e.target.value)}
-                >
-                  {patrolRecords.map(r => (
-                    <option key={r.id} value={r.id}>
-                      {r.staffName} - {r.route} - {r.startTime}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {!editingLostItem && (
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1.5">关联巡场记录</label>
+                  <select
+                    className="input-field"
+                    value={linkedPatrolId}
+                    onChange={e => setLinkedPatrolId(e.target.value)}
+                  >
+                    {patrolRecords.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {r.staffName} - {r.route} - {r.startTime}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-slate-400 mb-1.5">物品名称</label>
                 <input className="input-field" placeholder="请输入物品名称" value={lostForm.name} onChange={e => setLostForm(f => ({ ...f, name: e.target.value }))} />
@@ -508,10 +614,45 @@ export default function Patrol() {
                 <label className="block text-xs text-slate-400 mb-1.5">拾得时间</label>
                 <input type="datetime-local" className="input-field" value={lostForm.foundTime} onChange={e => setLostForm(f => ({ ...f, foundTime: e.target.value }))} />
               </div>
+
+              <div className="pt-2 border-t border-surface-500/20">
+                <p className="text-xs text-slate-500 mb-3">扩展信息（选填）</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1">
+                      <Archive className="w-3 h-3" />
+                      暂存点
+                    </label>
+                    <input className="input-field" placeholder="如：客服中心、南门安保亭" value={lostForm.storageLocation} onChange={e => setLostForm(f => ({ ...f, storageLocation: e.target.value }))} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1">
+                        <Handshake className="w-3 h-3" />
+                        交接人
+                      </label>
+                      <input className="input-field" placeholder="交接人员姓名" value={lostForm.handoverTo} onChange={e => setLostForm(f => ({ ...f, handoverTo: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1.5">交接时间</label>
+                      <input type="datetime-local" className="input-field" value={lostForm.handoverTime} onChange={e => setLostForm(f => ({ ...f, handoverTime: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1">
+                      <FileText className="w-3 h-3" />
+                      处理备注
+                    </label>
+                    <textarea className="input-field min-h-[60px] resize-none" placeholder="补充说明..." value={lostForm.remark} onChange={e => setLostForm(f => ({ ...f, remark: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button className="btn-secondary text-sm" onClick={closeLostModal}>取消</button>
-              <button className="btn-primary text-sm" onClick={handleAddLost}>确认登记</button>
+              <button className="btn-primary text-sm" onClick={handleSubmitLost}>
+                {editingLostItem ? '保存修改' : '确认登记'}
+              </button>
             </div>
           </div>
         </div>
