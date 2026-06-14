@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import type { ReactNode } from 'react'
 import {
   Megaphone,
   FileText,
@@ -19,9 +20,12 @@ import {
   Package,
   ShieldCheck,
   User,
+  Timer,
+  Radio,
+  MapPin,
 } from 'lucide-react'
 import { useStore } from '@/store'
-import type { AppNotification, LostItem, PatrolRecord } from '@/types'
+import type { AppNotification, LostItem, PatrolRecord, NotificationSource } from '@/types'
 
 const TARGET_AREAS = [
   '全园区', '万岁山主舞台', '开封府实景', '民俗街区', '湖心亭',
@@ -54,6 +58,27 @@ const STATUS_BADGE: Record<AppNotification['status'], string> = {
   scheduled: 'badge-info',
 }
 
+const SOURCE_LABELS: Record<NotificationSource, string> = {
+  manual: '手工新建',
+  lost_item: '失物招领',
+  patrol: '巡场记录',
+  briefing: '运营简报',
+}
+
+const SOURCE_BADGE: Record<NotificationSource, string> = {
+  manual: 'badge-info',
+  lost_item: 'badge-warning',
+  patrol: 'badge-success',
+  briefing: 'badge-ochre',
+}
+
+const SOURCE_ICONS: Record<NotificationSource, ReactNode> = {
+  manual: <Pencil className="w-3 h-3" />,
+  lost_item: <Package className="w-3 h-3" />,
+  patrol: <ShieldCheck className="w-3 h-3" />,
+  briefing: <FileText className="w-3 h-3" />,
+}
+
 type TabFilter = 'all' | AppNotification['type']
 type ModalMode = 'create' | 'edit'
 type GenerateTab = 'lostItem' | 'patrol'
@@ -66,6 +91,8 @@ interface FormState {
   isPinned: boolean
   enableSchedule: boolean
   scheduledPublishTime: string
+  source: NotificationSource
+  sourceId?: string
 }
 
 const emptyForm: FormState = {
@@ -76,10 +103,11 @@ const emptyForm: FormState = {
   isPinned: false,
   enableSchedule: false,
   scheduledPublishTime: '',
+  source: 'manual',
 }
 
 export default function Notification() {
-  const { notifications, addNotification, updateNotification, updateNotificationStatus, checkScheduledPublish, lostItems, patrolRecords } = useStore()
+  const { notifications, addNotification, updateNotification, updateNotificationStatus, checkScheduledPublish, lostItems, patrolRecords, generateBriefing, linkNotificationToPatrol } = useStore()
   const [activeTab, setActiveTab] = useState<TabFilter>('all')
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -133,7 +161,7 @@ export default function Notification() {
 
   const handleOpenCreate = () => {
     setEditingId(null)
-    setForm(emptyForm)
+    setForm({ ...emptyForm, source: 'manual' })
     setShowModal(true)
   }
 
@@ -151,6 +179,8 @@ export default function Notification() {
       scheduledPublishTime: target.scheduledPublishTime
         ? new Date(target.scheduledPublishTime).toISOString().slice(0, 16)
         : '',
+      source: target.source,
+      sourceId: target.sourceId,
     })
     setShowModal(true)
   }
@@ -160,8 +190,9 @@ export default function Notification() {
 
     if (mode === 'create') {
       const now = new Date().toLocaleString()
+      const newId = Date.now().toString()
       addNotification({
-        id: Date.now().toString(),
+        id: newId,
         title: form.title.trim(),
         content: form.content.trim(),
         type: form.type,
@@ -169,11 +200,16 @@ export default function Notification() {
         status: form.enableSchedule && form.scheduledPublishTime ? 'scheduled' : 'draft',
         isPinned: form.isPinned,
         createdAt: now,
+        source: form.source,
+        sourceId: form.sourceId,
         ...(form.enableSchedule && form.scheduledPublishTime
           ? { scheduledPublishTime: new Date(form.scheduledPublishTime).toISOString() }
           : {}),
         publishHistory: [],
       })
+      if (form.source === 'patrol' && form.sourceId) {
+        linkNotificationToPatrol(form.sourceId, newId, form.title.trim(), now)
+      }
     } else if (mode === 'edit' && editingId !== null) {
       const patch: Partial<AppNotification> = {
         title: form.title.trim(),
@@ -254,6 +290,8 @@ export default function Notification() {
       isPinned: false,
       enableSchedule: false,
       scheduledPublishTime: '',
+      source: 'lost_item',
+      sourceId: item.id,
     })
     setEditingId(null)
     setShowGenerateModal(false)
@@ -270,9 +308,27 @@ export default function Notification() {
       isPinned: false,
       enableSchedule: false,
       scheduledPublishTime: '',
+      source: 'patrol',
+      sourceId: record.id,
     })
     setEditingId(null)
     setShowGenerateModal(false)
+    setShowModal(true)
+  }
+
+  const handleGenerateBriefing = () => {
+    const briefingContent = generateBriefing()
+    setForm({
+      title: `每日运营简报 - ${new Date().toLocaleDateString('zh-CN')}`,
+      content: briefingContent,
+      type: 'briefing',
+      targetAreas: ['管理部'],
+      isPinned: false,
+      enableSchedule: false,
+      scheduledPublishTime: '',
+      source: 'briefing',
+    })
+    setEditingId(null)
     setShowModal(true)
   }
 
@@ -296,6 +352,10 @@ export default function Notification() {
           <p className="text-sm text-slate-500 mt-1">管理园区通知、公告与运营简报</p>
         </div>
         <div className="flex items-center gap-3">
+          <button className="btn-secondary flex items-center gap-2" onClick={handleGenerateBriefing}>
+            <FileText className="w-4 h-4" />
+            生成运营简报
+          </button>
           <button className="btn-secondary flex items-center gap-2" onClick={() => setShowGenerateModal(true)}>
             <Wand2 className="w-4 h-4" />
             从现有记录生成
@@ -369,6 +429,10 @@ export default function Notification() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   {n.isPinned && <Pin className="w-3.5 h-3.5 text-brand-300 shrink-0" />}
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${SOURCE_BADGE[n.source]}`}>
+                    {SOURCE_ICONS[n.source]}
+                    来源：{SOURCE_LABELS[n.source]}
+                  </span>
                   <h3 className="text-sm font-semibold text-slate-100 truncate">{n.title}</h3>
                   <span className={TYPE_BADGE[n.type]}>{TYPE_LABELS[n.type]}</span>
                   <span className={STATUS_BADGE[n.status]}>
@@ -380,6 +444,7 @@ export default function Notification() {
                 <div className="flex items-center gap-2 flex-wrap">
                   {n.targetAreas.map(area => (
                     <span key={area} className="inline-flex items-center px-2 py-0.5 rounded bg-surface-800 text-[11px] text-slate-400 border border-surface-500/30">
+                      <MapPin className="w-3 h-3 mr-1" />
                       {area}
                     </span>
                   ))}
@@ -396,26 +461,46 @@ export default function Notification() {
                       className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
                       onClick={() => toggleHistory(n.id)}
                     >
+                      <Radio className="w-3 h-3" />
                       发布记录 ({n.publishHistory.length})
                       {expandedHistory[n.id] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                     </button>
                     {expandedHistory[n.id] && (
                       <div className="mt-1.5 ml-1 border-l border-surface-500/30 pl-3 space-y-1.5">
                         {n.publishHistory.map((entry, idx) => (
-                          <div key={idx} className="space-y-0.5">
-                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <div key={idx} className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-xs">
                               {entry.action === 'published' ? (
-                                <Send className="w-3 h-3 text-emerald-400/70" />
+                                <>
+                                  <Send className="w-3 h-3 text-emerald-400/70" />
+                                  <span className="text-emerald-400/70 font-medium">发布</span>
+                                </>
                               ) : (
-                                <EyeOff className="w-3 h-3 text-red-400/70" />
+                                <>
+                                  <EyeOff className="w-3 h-3 text-red-400/70" />
+                                  <span className="text-red-400/70 font-medium">撤回</span>
+                                </>
                               )}
-                              <span className={entry.action === 'published' ? 'text-emerald-400/70' : 'text-red-400/70'}>
-                                {entry.action === 'published' ? '已发布' : '已撤回'}
-                              </span>
-                              <span className="text-slate-600">{entry.time}</span>
+                              <span className="text-slate-500">·</span>
+                              <span className="text-slate-400">{entry.time}</span>
                             </div>
+                            {entry.targetAreas && entry.targetAreas.length > 0 && (
+                              <div className="flex items-center gap-1 text-xs text-slate-500 ml-4.5">
+                                <MapPin className="w-3 h-3" />
+                                <span>覆盖区域：{entry.targetAreas.join('、')}</span>
+                              </div>
+                            )}
+                            {entry.action === 'published' && entry.source && (
+                              <div className="flex items-center gap-1.5 text-xs ml-4.5">
+                                <span className="text-slate-500">来源：</span>
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${SOURCE_BADGE[entry.source]}`}>
+                                  {SOURCE_ICONS[entry.source]}
+                                  {SOURCE_LABELS[entry.source]}
+                                </span>
+                              </div>
+                            )}
                             {entry.action === 'revoked' && entry.reason && (
-                              <div className="text-xs text-red-400/60 ml-4.5">
+                              <div className="text-xs text-red-400/70 ml-4.5">
                                 原因：{entry.reason}
                               </div>
                             )}
@@ -429,7 +514,7 @@ export default function Notification() {
               <div className="flex flex-col items-end gap-2 shrink-0">
                 {n.status === 'published' && n.publishTime && (
                   <div className="flex items-center gap-1 text-xs text-slate-500">
-                    <Clock className="w-3 h-3" />
+                    <Timer className="w-3 h-3" />
                     {n.publishTime}
                   </div>
                 )}
@@ -524,6 +609,15 @@ export default function Notification() {
               <div className="mb-4">
                 <span className="badge-info inline-flex items-center gap-1.5">
                   正在编辑 {TYPE_LABELS[editingNotification.type]} · 当前状态 {STATUS_LABELS[editingNotification.status]}
+                </span>
+              </div>
+            )}
+
+            {mode === 'create' && form.source !== 'manual' && (
+              <div className="mb-4">
+                <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium ${SOURCE_BADGE[form.source]}`}>
+                  {SOURCE_ICONS[form.source]}
+                  来源：{SOURCE_LABELS[form.source]}
                 </span>
               </div>
             )}

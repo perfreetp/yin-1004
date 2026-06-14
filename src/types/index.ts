@@ -85,6 +85,14 @@ export interface Complaint {
   remark?: string
 }
 
+export type PatrolEventType = 'normal' | 'crowd' | 'facility_damage' | 'child_missing' | 'lost_item' | 'other'
+
+export interface NotificationRef {
+  id: string
+  title: string
+  publishTime: string
+}
+
 export interface PatrolRecord {
   id: string
   staffName: string
@@ -93,6 +101,11 @@ export interface PatrolRecord {
   endTime: string
   photos: string[]
   notes: string
+  eventType?: PatrolEventType
+  eventLocation?: string
+  eventTime?: string
+  eventDescription?: string
+  linkedNotifications: NotificationRef[]
   lostItems: LostItem[]
 }
 
@@ -110,10 +123,15 @@ export interface LostItem {
   remark?: string
 }
 
+export type NotificationSource = 'manual' | 'lost_item' | 'patrol' | 'briefing'
+
 export interface PublishLogEntry {
   action: 'published' | 'revoked'
   time: string
   reason?: string
+  targetAreas?: string[]
+  source?: NotificationSource
+  sourceId?: string
 }
 
 export interface AppNotification {
@@ -127,5 +145,7 @@ export interface AppNotification {
   scheduledPublishTime?: string
   isPinned: boolean
   createdAt: string
+  source: NotificationSource
+  sourceId?: string
   publishHistory: PublishLogEntry[]
 }

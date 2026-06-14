@@ -16,9 +16,40 @@ import {
   Archive,
   Handshake,
   FileText,
+  AlertTriangle,
+  Users,
+  Zap,
+  Baby,
+  Radio,
+  Megaphone,
+  ExternalLink,
+  Send,
 } from 'lucide-react'
 import { useStore } from '@/store'
-import type { LostItem } from '@/types'
+import { useNavigate } from 'react-router-dom'
+import type { LostItem, PatrolRecord, AppNotification, PatrolEventType } from '@/types'
+
+const TARGET_AREAS = [
+  '全园区', '万岁山主舞台', '开封府实景', '民俗街区', '湖心亭',
+  '北广场', '武术馆', '南门广场', '东门入口', '管理部',
+]
+
+const EVENT_TYPE_CONFIG: Record<PatrolEventType, { label: string; icon: JSX.Element; badge: string; severity: 'danger' | 'primary' | 'secondary' }> = {
+  normal: { label: '常规巡查', icon: <ShieldCheck className="w-4 h-4" />, badge: 'badge-secondary', severity: 'secondary' },
+  crowd: { label: '🚨 客流拥挤', icon: <Users className="w-4 h-4" />, badge: 'badge-danger', severity: 'danger' },
+  facility_damage: { label: '⚡ 设施损坏', icon: <Zap className="w-4 h-4" />, badge: 'badge-warning', severity: 'primary' },
+  child_missing: { label: '👶 儿童走失', icon: <Baby className="w-4 h-4" />, badge: 'badge-danger', severity: 'danger' },
+  lost_item: { label: '📦 物品拾遗', icon: <Package className="w-4 h-4" />, badge: 'badge-warning', severity: 'primary' },
+  other: { label: 'ℹ️ 其他事件', icon: <AlertTriangle className="w-4 h-4" />, badge: 'badge-info', severity: 'primary' },
+}
+
+const BROADCAST_TEMPLATES: Record<Exclude<PatrolEventType, 'normal'>, { title: string }> = {
+  crowd: { title: '紧急广播：客流拥挤预警' },
+  facility_damage: { title: '紧急广播：设施损坏通知' },
+  child_missing: { title: '紧急寻人：儿童走失' },
+  lost_item: { title: '失物招领通知' },
+  other: { title: '紧急通知' },
+}
 
 const LOST_STATUS_BADGE: Record<LostItem['status'], { cls: string; label: string }> = {
   registered: { cls: 'badge-warning', label: '待认领' },
@@ -52,13 +83,101 @@ function formatDateTimeForInput(dt: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function getCurrentDateTimeForInput(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function deriveTargetAreasFromLocation(location: string): string[] {
+  const areas: string[] = []
+  const locLower = location.toLowerCase()
+  if (locLower.includes('东门')) areas.push('东门入口')
+  if (locLower.includes('南门')) areas.push('南门广场')
+  if (locLower.includes('北广场')) areas.push('北广场')
+  if (locLower.includes('民俗')) areas.push('民俗街区')
+  if (locLower.includes('开封府')) areas.push('开封府实景')
+  if (locLower.includes('湖心亭')) areas.push('湖心亭')
+  if (locLower.includes('武术馆')) areas.push('武术馆')
+  if (locLower.includes('主舞台') || locLower.includes('万岁山')) areas.push('万岁山主舞台')
+  if (areas.length === 0) areas.push('全园区')
+  return areas
+}
+
+function generateBroadcastContent(
+  eventType: Exclude<PatrolEventType, 'normal'>,
+  eventLocation: string,
+  eventTime: string,
+  eventDescription: string,
+  staffName: string
+): string {
+  const timeStr = eventTime || '刚刚'
+  const locationStr = eventLocation || '园区内'
+  const descStr = eventDescription || '请留意相关情况'
+
+  switch (eventType) {
+    case 'crowd':
+      return `【紧急广播】${timeStr}在${locationStr}区域出现客流拥挤情况。${descStr}。请该区域游客注意安全，听从现场工作人员引导，有序疏散。此消息由巡场人员${staffName}上报。`
+    case 'facility_damage':
+      return `【紧急通知】${timeStr}在${locationStr}发现设施损坏。${descStr}。请相关部门尽快处理，请游客避开该区域，注意安全。此消息由巡场人员${staffName}上报。`
+    case 'child_missing':
+      return `【紧急寻人】${timeStr}在${locationStr}有儿童走失。${descStr}。请园区内工作人员协助寻找，如有线索请立即联系客服中心。此消息由巡场人员${staffName}上报。`
+    case 'lost_item':
+      return `【失物招领】${timeStr}在${locationStr}拾得物品。${descStr}。请失主携带有效证件前往客服中心认领。此消息由巡场人员${staffName}上报。`
+    case 'other':
+      return `【紧急通知】${timeStr}在${locationStr}发生事件。${descStr}。请相关人员留意。此消息由巡场人员${staffName}上报。`
+  }
+}
+
+function generateLostItemBroadcastContent(item: LostItem): string {
+  let content = `在 ${item.location} 拾得${item.name}，${item.description}。`
+  if (item.storageLocation) {
+    content += `物品暂存于${item.storageLocation}。`
+  }
+  if (item.handoverTo && item.handoverTime) {
+    content += `已交接给${item.handoverTo}（${item.handoverTime}）。`
+  }
+  content += '请失主携带有效证件前往客服中心认领。'
+  return content
+}
+
+interface NotificationFormState {
+  title: string
+  content: string
+  type: AppNotification['type']
+  targetAreas: string[]
+  isPinned: boolean
+}
+
+const emptyNotificationForm: NotificationFormState = {
+  title: '',
+  content: '',
+  type: 'broadcast',
+  targetAreas: ['全园区'],
+  isPinned: false,
+}
+
 export default function Patrol() {
-  const { patrolRecords, lostItems, addPatrolRecord, addLostItem, updateLostItemStatus, updateLostItem } = useStore()
+  const {
+    patrolRecords,
+    lostItems,
+    addPatrolRecord,
+    addLostItem,
+    updateLostItemStatus,
+    updateLostItem,
+    linkNotificationToPatrol,
+    notifications,
+    addNotification,
+  } = useStore()
+
+  const navigate = useNavigate()
 
   const [showPatrolModal, setShowPatrolModal] = useState(false)
   const [showLostModal, setShowLostModal] = useState(false)
+  const [showNotificationModal, setShowNotificationModal] = useState(false)
   const [searchLost, setSearchLost] = useState('')
   const [editingLostItem, setEditingLostItem] = useState<LostItem | null>(null)
+  const [broadcastSourcePatrolId, setBroadcastSourcePatrolId] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -68,6 +187,10 @@ export default function Patrol() {
     startTime: '',
     endTime: '',
     notes: '',
+    eventType: 'normal' as PatrolEventType,
+    eventLocation: '',
+    eventTime: getCurrentDateTimeForInput(),
+    eventDescription: '',
   })
   const [patrolPhotos, setPatrolPhotos] = useState<string[]>([])
 
@@ -82,6 +205,8 @@ export default function Patrol() {
     remark: '',
   })
   const [linkedPatrolId, setLinkedPatrolId] = useState('')
+
+  const [notificationForm, setNotificationForm] = useState<NotificationFormState>(emptyNotificationForm)
 
   const [lightbox, setLightbox] = useState<{
     photos: string[]
@@ -115,7 +240,17 @@ export default function Patrol() {
   }
 
   const resetPatrolForm = () => {
-    setPatrolForm({ staffName: '', route: '', startTime: '', endTime: '', notes: '' })
+    setPatrolForm({
+      staffName: '',
+      route: '',
+      startTime: '',
+      endTime: '',
+      notes: '',
+      eventType: 'normal',
+      eventLocation: '',
+      eventTime: getCurrentDateTimeForInput(),
+      eventDescription: '',
+    })
     setPatrolPhotos([])
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -135,11 +270,18 @@ export default function Patrol() {
     setEditingLostItem(null)
   }
 
+  const resetNotificationForm = () => {
+    setNotificationForm(emptyNotificationForm)
+    setBroadcastSourcePatrolId(null)
+  }
+
   const handleAddPatrol = () => {
     if (!patrolForm.staffName.trim() || !patrolForm.route.trim() || !patrolForm.startTime || !patrolForm.endTime) return
     const startStr = patrolForm.startTime.replace('T', ' ')
     const endStr = patrolForm.endTime.replace('T', ' ')
-    addPatrolRecord({
+    const eventTimeStr = patrolForm.eventTime ? patrolForm.eventTime.replace('T', ' ') : ''
+
+    const record: PatrolRecord = {
       id: String(Date.now()),
       staffName: patrolForm.staffName.trim(),
       route: patrolForm.route.trim(),
@@ -147,8 +289,18 @@ export default function Patrol() {
       endTime: endStr,
       photos: [...patrolPhotos],
       notes: patrolForm.notes.trim(),
+      linkedNotifications: [],
       lostItems: [],
-    })
+    }
+
+    if (patrolForm.eventType !== 'normal') {
+      record.eventType = patrolForm.eventType
+      record.eventLocation = patrolForm.eventLocation.trim() || undefined
+      record.eventTime = eventTimeStr || undefined
+      record.eventDescription = patrolForm.eventDescription.trim() || undefined
+    }
+
+    addPatrolRecord(record)
     resetPatrolForm()
     setShowPatrolModal(false)
   }
@@ -222,6 +374,102 @@ export default function Patrol() {
     setShowLostModal(false)
   }
 
+  const closeNotificationModal = () => {
+    resetNotificationForm()
+    setShowNotificationModal(false)
+  }
+
+  const handleGenerateBroadcast = (record: PatrolRecord) => {
+    if (!record.eventType || record.eventType === 'normal') return
+
+    const eventType = record.eventType as Exclude<PatrolEventType, 'normal'>
+    const template = BROADCAST_TEMPLATES[eventType]
+    const targetAreas = deriveTargetAreasFromLocation(record.eventLocation || record.route)
+    const content = generateBroadcastContent(
+      eventType,
+      record.eventLocation || '',
+      record.eventTime || '',
+      record.eventDescription || '',
+      record.staffName
+    )
+
+    setNotificationForm({
+      title: template.title,
+      content,
+      type: 'broadcast',
+      targetAreas,
+      isPinned: eventType === 'child_missing' || eventType === 'crowd',
+    })
+    setBroadcastSourcePatrolId(record.id)
+    setShowNotificationModal(true)
+  }
+
+  const handleGenerateBroadcastFromLostItem = (item: LostItem) => {
+    const targetAreas = deriveTargetAreasFromLocation(item.location)
+    const content = generateLostItemBroadcastContent(item)
+
+    setNotificationForm({
+      title: `失物招领：${item.name}`,
+      content,
+      type: 'broadcast',
+      targetAreas,
+      isPinned: false,
+    })
+    setBroadcastSourcePatrolId(null)
+    setShowNotificationModal(true)
+  }
+
+  const handlePublishNotification = () => {
+    if (!notificationForm.title.trim() || !notificationForm.content.trim() || notificationForm.targetAreas.length === 0) return
+
+    const now = new Date().toLocaleString()
+    const newNotification: AppNotification = {
+      id: Date.now().toString(),
+      title: notificationForm.title.trim(),
+      content: notificationForm.content.trim(),
+      type: notificationForm.type,
+      targetAreas: notificationForm.targetAreas,
+      status: 'published',
+      publishTime: now,
+      isPinned: notificationForm.isPinned,
+      createdAt: now,
+      source: broadcastSourcePatrolId ? 'patrol' : 'lost_item',
+      sourceId: broadcastSourcePatrolId || undefined,
+      publishHistory: [{
+        action: 'published',
+        time: now,
+        targetAreas: notificationForm.targetAreas,
+        source: broadcastSourcePatrolId ? 'patrol' : 'lost_item',
+        sourceId: broadcastSourcePatrolId || undefined,
+      }],
+    }
+
+    addNotification(newNotification)
+
+    if (broadcastSourcePatrolId) {
+      linkNotificationToPatrol(
+        broadcastSourcePatrolId,
+        newNotification.id,
+        newNotification.title,
+        now
+      )
+    }
+
+    resetNotificationForm()
+    setShowNotificationModal(false)
+  }
+
+  const handleToggleNotificationArea = (area: string) => {
+    setNotificationForm(prev => ({
+      ...prev,
+      targetAreas: prev.targetAreas.includes(area)
+        ? prev.targetAreas.filter(a => a !== area)
+        : [...prev.targetAreas, area],
+    }))
+  }
+
+  const getNotificationById = (id: string) => notifications.find(n => n.id === id)
+
   const lightboxPrev = useCallback(() => {
     setLightbox(prev => (prev ? { ...prev, index: (prev.index - 1 + prev.photos.length) % prev.photos.length } : null))
   }, [])
@@ -242,6 +490,15 @@ export default function Patrol() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [lightbox, lightboxClose, lightboxPrev, lightboxNext])
+
+  const eventTypeOptions: { value: PatrolEventType; label: string }[] = [
+    { value: 'normal', label: '常规巡查' },
+    { value: 'crowd', label: '🚨 客流拥挤' },
+    { value: 'facility_damage', label: '⚡ 设施损坏' },
+    { value: 'child_missing', label: '👶 儿童走失' },
+    { value: 'lost_item', label: '📦 物品拾遗' },
+    { value: 'other', label: 'ℹ️ 其他事件' },
+  ]
 
   return (
     <div className="p-6 space-y-6">
@@ -312,6 +569,15 @@ export default function Patrol() {
                   <div className="w-1.5 h-1.5 rounded-full bg-brand-400" />
                 </div>
                 <div className="card-hover ml-2">
+                  {record.eventType && record.eventType !== 'normal' && (
+                    <div className="mb-3">
+                      <span className={EVENT_TYPE_CONFIG[record.eventType].badge + ' flex items-center gap-1 w-fit'}>
+                        {EVENT_TYPE_CONFIG[record.eventType].icon}
+                        {EVENT_TYPE_CONFIG[record.eventType].label}
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
                       <h3 className="text-sm font-semibold text-slate-100">{record.staffName}</h3>
@@ -333,6 +599,50 @@ export default function Patrol() {
                     </div>
                   </div>
 
+                  {record.eventType && record.eventType !== 'normal' && (
+                    <div className="mt-3 p-3 bg-surface-800/50 rounded-lg border border-surface-500/30 space-y-2">
+                      {record.eventLocation && (
+                        <div className="flex items-start gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-slate-500 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wider">事发地点</p>
+                            <p className="text-xs text-slate-300">{record.eventLocation}</p>
+                          </div>
+                        </div>
+                      )}
+                      {record.eventTime && (
+                        <div className="flex items-start gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-500 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wider">事发时间</p>
+                            <p className="text-xs text-slate-300">{record.eventTime}</p>
+                          </div>
+                        </div>
+                      )}
+                      {record.eventDescription && (
+                        <div className="flex items-start gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-slate-500 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wider">事件描述</p>
+                            <p className="text-xs text-slate-300 leading-relaxed">{record.eventDescription}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {record.eventType && record.eventType !== 'normal' && (
+                    <div className="mt-3">
+                      <button
+                        className={`${EVENT_TYPE_CONFIG[record.eventType].severity === 'danger' ? 'btn-danger' : 'btn-primary'} text-sm flex items-center gap-1.5 w-full justify-center`}
+                        onClick={() => handleGenerateBroadcast(record)}
+                      >
+                        <Megaphone className="w-4 h-4" />
+                        一键生成广播
+                      </button>
+                    </div>
+                  )}
+
                   {record.photos.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-3">
                       {record.photos.map((photo, idx) => (
@@ -351,6 +661,37 @@ export default function Patrol() {
                     <div className="mt-3 flex items-start gap-1.5">
                       <Camera className="w-3.5 h-3.5 text-slate-500 mt-0.5 flex-shrink-0" />
                       <p className="text-xs text-slate-400 leading-relaxed">{record.notes}</p>
+                    </div>
+                  )}
+
+                  {record.linkedNotifications.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-surface-500/20">
+                      <p className="text-xs text-slate-500 mb-2 flex items-center gap-1">
+                        <Radio className="w-3.5 h-3.5" />
+                        已发布通知 ({record.linkedNotifications.length})
+                      </p>
+                      <div className="space-y-2">
+                        {record.linkedNotifications.map(linked => {
+                          const notification = getNotificationById(linked.id)
+                          const isDraft = notification?.status === 'draft'
+                          return (
+                            <div
+                              key={linked.id}
+                              className="flex items-start justify-between gap-2 p-2 bg-surface-800/50 rounded-lg border border-surface-500/30 cursor-pointer hover:bg-surface-800 transition-colors"
+                              onClick={() => navigate('/notification')}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs font-medium text-slate-200 truncate">{linked.title}</p>
+                                  {isDraft && <span className="badge-warning text-[10px]">草稿中</span>}
+                                </div>
+                                <p className="text-[10px] text-slate-500 mt-0.5">{linked.publishTime}</p>
+                              </div>
+                              <ExternalLink className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
 
@@ -453,12 +794,21 @@ export default function Patrol() {
                   </div>
                   <div className="flex flex-col gap-1.5 flex-shrink-0">
                     {item.status === 'registered' && (
-                      <button
-                        className="btn-primary text-xs px-2.5 py-1"
-                        onClick={() => updateLostItemStatus(item.id, 'claimed')}
-                      >
-                        认领
-                      </button>
+                      <>
+                        <button
+                          className="btn-primary text-xs px-2.5 py-1"
+                          onClick={() => updateLostItemStatus(item.id, 'claimed')}
+                        >
+                          认领
+                        </button>
+                        <button
+                          className="btn-secondary text-xs px-2.5 py-1 flex items-center gap-1"
+                          onClick={() => handleGenerateBroadcastFromLostItem(item)}
+                        >
+                          <Megaphone className="w-3 h-3" />
+                          广播
+                        </button>
+                      </>
                     )}
                     <button
                       className="btn-secondary text-xs px-2.5 py-1 flex items-center gap-1"
@@ -508,6 +858,77 @@ export default function Patrol() {
                   <input type="datetime-local" className="input-field" value={patrolForm.endTime} onChange={e => setPatrolForm(f => ({ ...f, endTime: e.target.value }))} />
                 </div>
               </div>
+
+              <div className="pt-2 border-t border-surface-500/20">
+                <label className="block text-xs text-slate-400 mb-2">事件类型</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {eventTypeOptions.map(option => (
+                    <label
+                      key={option.value}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all duration-200 text-sm ${
+                        patrolForm.eventType === option.value
+                          ? option.value === 'normal'
+                            ? 'border-brand-400/50 bg-brand-400/10 text-brand-300'
+                            : option.value === 'crowd' || option.value === 'child_missing'
+                            ? 'border-red-400/50 bg-red-400/10 text-red-300'
+                            : option.value === 'facility_damage' || option.value === 'lost_item'
+                            ? 'border-gold-400/50 bg-gold-400/10 text-gold-300'
+                            : 'border-sky-400/50 bg-sky-400/10 text-sky-300'
+                          : 'border-surface-500/30 bg-surface-800 text-slate-400 hover:border-surface-400'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="eventType"
+                        className="sr-only"
+                        checked={patrolForm.eventType === option.value}
+                        onChange={() => setPatrolForm(f => ({ ...f, eventType: option.value }))}
+                      />
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all duration-200 ${
+                        patrolForm.eventType === option.value
+                          ? 'border-current'
+                          : 'border-surface-400'
+                      }`}>
+                        {patrolForm.eventType === option.value && <div className="w-2 h-2 rounded-full bg-current" />}
+                      </div>
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {patrolForm.eventType !== 'normal' && (
+                <div className="pt-2 border-t border-surface-500/20 space-y-3">
+                  <p className="text-xs text-slate-500">事件详情</p>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1.5">事发地点</label>
+                    <input
+                      className="input-field"
+                      placeholder="请输入事发地点"
+                      value={patrolForm.eventLocation}
+                      onChange={e => setPatrolForm(f => ({ ...f, eventLocation: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1.5">事发时间</label>
+                    <input
+                      type="datetime-local"
+                      className="input-field"
+                      value={patrolForm.eventTime}
+                      onChange={e => setPatrolForm(f => ({ ...f, eventTime: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1.5">事件描述</label>
+                    <textarea
+                      className="input-field min-h-[80px] resize-none"
+                      placeholder="请详细描述事件情况"
+                      value={patrolForm.eventDescription}
+                      onChange={e => setPatrolForm(f => ({ ...f, eventDescription: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs text-slate-400 mb-1.5">现场照片</label>
@@ -652,6 +1073,111 @@ export default function Patrol() {
               <button className="btn-secondary text-sm" onClick={closeLostModal}>取消</button>
               <button className="btn-primary text-sm" onClick={handleSubmitLost}>
                 {editingLostItem ? '保存修改' : '确认登记'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNotificationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closeNotificationModal}>
+          <div className="bg-surface-800 border border-surface-500/30 rounded-xl w-full max-w-lg mx-4 p-6 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
+                <Megaphone className="w-5 h-5 text-red-400" />
+                生成紧急广播
+              </h2>
+              <button className="text-slate-500 hover:text-slate-300 transition-colors" onClick={closeNotificationModal}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">标题</label>
+                <input
+                  className="input-field"
+                  placeholder="请输入广播标题"
+                  value={notificationForm.title}
+                  onChange={e => setNotificationForm(prev => ({ ...prev, title: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">内容</label>
+                <textarea
+                  className="input-field min-h-[120px] resize-y"
+                  placeholder="请输入广播内容"
+                  value={notificationForm.content}
+                  onChange={e => setNotificationForm(prev => ({ ...prev, content: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">类型</label>
+                <select
+                  className="input-field"
+                  value={notificationForm.type}
+                  onChange={e => setNotificationForm(prev => ({ ...prev, type: e.target.value as AppNotification['type'] }))}
+                >
+                  <option value="broadcast">广播通知</option>
+                  <option value="announcement">活动公告</option>
+                  <option value="briefing">运营简报</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-2">目标区域</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {TARGET_AREAS.map(area => (
+                    <label
+                      key={area}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all duration-200 text-sm ${
+                        notificationForm.targetAreas.includes(area)
+                          ? 'border-brand-400/50 bg-brand-400/10 text-brand-300'
+                          : 'border-surface-500/30 bg-surface-800 text-slate-400 hover:border-surface-400'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={notificationForm.targetAreas.includes(area)}
+                        onChange={() => handleToggleNotificationArea(area)}
+                      />
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all duration-200 ${
+                        notificationForm.targetAreas.includes(area)
+                          ? 'bg-brand-400 border-brand-400'
+                          : 'border-surface-400'
+                      }`}>
+                        {notificationForm.targetAreas.includes(area) && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                      {area}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all duration-200 ${
+                  notificationForm.isPinned
+                    ? 'bg-brand-400 border-brand-400'
+                    : 'border-surface-400'
+                }`}>
+                  {notificationForm.isPinned && <Check className="w-3.5 h-3.5 text-white" />}
+                </div>
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={notificationForm.isPinned}
+                  onChange={e => setNotificationForm(prev => ({ ...prev, isPinned: e.target.checked }))}
+                />
+                <span className="text-sm text-slate-300">是否置顶</span>
+              </label>
+            </div>
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-surface-500/30">
+              <button className="btn-secondary text-sm" onClick={closeNotificationModal}>取消</button>
+              <button
+                className="btn-danger text-sm flex items-center gap-2"
+                onClick={handlePublishNotification}
+                disabled={!notificationForm.title.trim() || !notificationForm.content.trim() || notificationForm.targetAreas.length === 0}
+              >
+                <Send className="w-4 h-4" />
+                立即发布
               </button>
             </div>
           </div>
